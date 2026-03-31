@@ -17,6 +17,9 @@ import { Mistral } from "@mistralai/mistralai";
 import { v4 as uuidv4 } from "uuid";
 import mammoth from "mammoth";
 import { initScheduler, registerSchedule, unregisterSchedule, executeSchedule, buildCronExpression } from './scheduler.js';
+import { materialize, getMaterializedContext } from './materializer.js';
+import { streamAnthropicSSE } from './stream.js';
+import { executeReportSpec } from './query-builder.js';
 import cron from 'node-cron';
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
@@ -156,6 +159,18 @@ async function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS materialized_views (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      table_name TEXT NOT NULL,
+      view_type TEXT NOT NULL,
+      content_text TEXT NOT NULL,
+      content_json TEXT,
+      computed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_mv_ws ON materialized_views(workspace_id, view_type);
   `);
 
   await db.executeMultiple(`
@@ -2460,6 +2475,9 @@ app.post("/api/w/:slug/transform", async (req, res) => {
     await dbRun("UPDATE workspaces SET row_count = (SELECT COUNT(*) FROM clean_data WHERE workspace_id = ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
       workspaceId, workspaceId);
 
+    // ── Materialize analytical views (zero-data prompts) ──
+    await materialize(dbGet, dbAll, dbRun, dbBatch, workspaceId);
+
     const commonCols = Object.entries(tablesByCommonKey).filter(([, tables]) => tables.length > 1).map(([col, tables]) => ({ column: col, tables }));
     const totalRows = tableSummaries.reduce((s, t) => s + t.rowCount, 0);
     const allCols = tableSummaries.flatMap(t => t.columns);
@@ -2550,14 +2568,14 @@ app.get("/api/w/:slug/data/stats", async (req, res) => {
 app.post("/api/w/:slug/ai/suggest-reports", async (req, res) => {
   try {
     const workspaceId = req.workspace.id;
-    // Parallel DB queries for speed
-    const [context, dataSummary, colStats] = await Promise.all([
+
+    // Load materialized views + project context in parallel (1 query each, no raw data)
+    const [context, mv] = await Promise.all([
       dbGet("SELECT * FROM project_context WHERE workspace_id = ?", workspaceId),
-      buildDataSummary(5, workspaceId),
-      buildColumnStats(workspaceId),
+      getMaterializedContext(dbAll, workspaceId),
     ]);
 
-    if (dataSummary.length === 0) {
+    if (!mv.hasViews) {
       return res.status(400).json({ error: "Aucune donnée disponible. Importez et transformez des fichiers d'abord." });
     }
 
@@ -2565,35 +2583,28 @@ app.post("/api/w/:slug/ai/suggest-reports", async (req, res) => {
       ? `Projet : ${context.project_name || "non renseigné"}\nSecteur : ${context.industry || "non renseigné"}\nObjectifs : ${context.objectives || "non renseignés"}\nTexte libre : ${context.free_text || "—"}`
       : "Aucun contexte projet renseigné.";
 
-    const schemaText = dataSummary.map(t => {
-      const cols = t.columns.map(c => `  - ${c.name} (${c.type})`).join("\n");
-      return `Table "${t.name}" — ${t.rowCount} lignes :\n${cols}\nExemple : ${JSON.stringify(t.sample?.[0] || {})}`;
-    }).join("\n\n");
-
-    const statsText = Object.entries(colStats).map(([table, cols]) => {
-      const entries = Object.entries(cols).map(([col, s]) =>
-        s.type === "number"
-          ? `  ${col}: min=${s.min}, max=${s.max}, avg=${s.avg}, nulls=${s.nullCount}`
-          : `  ${col}: ${s.uniqueCount} valeurs uniques, exemples=${JSON.stringify(s.sampleValues)}, nulls=${s.nullCount}`
-      ).join("\n");
-      return `Table "${table}" :\n${entries}`;
-    }).join("\n\n");
-
-    const prompt = `Tu es un expert en data analytics pour les mutuelles santé collectives françaises.
+    const prompt = `Tu es un expert en data analytics.
 
 CONTEXTE PROJET :
 ${contextText}
 
-SCHÉMA ET DONNÉES :
-${schemaText}
+SCHEMA :
+${mv.schemaText}
 
-STATISTIQUES PAR COLONNE :
-${statsText}
+PROFIL STATISTIQUE :
+${mv.statsText}
 
-Ta mission : suggérer 5 à 8 rapports analytiques pertinents pour ce jeu de données.
+DIMENSIONS METIER :
+${mv.dimensionsText}
+
+SIGNAUX :
+${mv.anomaliesText}
+
+Ta mission : suggérer 5 à 8 rapports analytiques pertinents pour ces données.
 Chaque suggestion doit être directement exploitable avec les colonnes disponibles.
+Base-toi uniquement sur les faits ci-dessus. Ne fabrique pas de données.
 
-Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans explication, dans ce format exact :
+Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans explication :
 {
   "suggestions": [
     {
@@ -2627,62 +2638,61 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans explication, dans c
 
 app.post("/api/w/:slug/ai/generate-report", async (req, res) => {
   try {
-    const { suggestion } = req.body;
+    const { suggestion, stream: wantStream } = req.body;
     if (!suggestion) return res.status(400).json({ error: "Paramètre 'suggestion' manquant." });
 
     const workspaceId = req.workspace.id;
-    // Parallel DB queries for speed
-    const [context, dataSummary, colStats] = await Promise.all([
+
+    // Load materialized views + context (no raw data loaded)
+    const [context, mv] = await Promise.all([
       dbGet("SELECT * FROM project_context WHERE workspace_id = ?", workspaceId),
-      buildDataSummary(20, workspaceId),
-      buildColumnStats(workspaceId),
+      getMaterializedContext(dbAll, workspaceId),
     ]);
 
     const contextText = context
       ? `Projet : ${context.project_name || "—"}\nSecteur : ${context.industry || "—"}\nObjectifs : ${context.objectives || "—"}`
       : "Aucun contexte renseigné.";
 
-    const dataText = dataSummary.map(t =>
-      `Table "${t.name}" (${t.rowCount} lignes) :\nColonnes : ${t.columns.map(c => `${c.name}(${c.type})`).join(", ")}\nExemples :\n${t.sample.map(r => JSON.stringify(r)).join("\n")}`
-    ).join("\n\n");
-
-    const statsText = Object.entries(colStats).map(([table, cols]) => {
-      const entries = Object.entries(cols).map(([col, s]) =>
-        s.type === "number" ? `  ${col}: min=${s.min}, max=${s.max}, avg=${s.avg}` : `  ${col}: ${s.uniqueCount} valeurs uniques`
-      ).join("\n");
-      return `Table "${table}" :\n${entries}`;
-    }).join("\n\n");
-
-    const prompt = `Tu es un expert data pour mutuelles santé collectives françaises.
+    // ── Spec+Compute prompt : LLM generates a spec, we compute the data ──
+    const prompt = `Tu es un expert data analytics.
 
 CONTEXTE :
 ${contextText}
 
-RAPPORT À GÉNÉRER :
+RAPPORT A GENERER :
 Titre : ${suggestion.title}
 Description : ${suggestion.description}
 Type principal : ${suggestion.type}
-Colonnes clés : ${(suggestion.columns || []).join(", ")}
-KPIs demandés : ${(suggestion.kpis || []).join(", ")}
+Colonnes cles : ${(suggestion.columns || []).join(", ")}
+KPIs demandes : ${(suggestion.kpis || []).join(", ")}
 
-DONNÉES DISPONIBLES :
-${dataText}
+SCHEMA :
+${mv.schemaText}
 
-STATISTIQUES :
-${statsText}
+PROFIL STATISTIQUE :
+${mv.statsText}
 
-Génère un rapport analytique complet avec des données RÉELLES calculées depuis les données fournies.
+DIMENSIONS METIER :
+${mv.dimensionsText}
 
-RÈGLES IMPORTANTES pour le format des sections :
+SIGNAUX :
+${mv.anomaliesText}
+
+IMPORTANT : Tu ne dois PAS inventer de donnees. Genere une SPECIFICATION de rapport.
+Pour chaque section, indique la table source, la colonne de regroupement (groupBy),
+les colonnes de valeurs (valueColumns) avec le type d'agregat (avg, sum, count, min, max),
+et un filtre optionnel. Les donnees seront calculees automatiquement depuis la base.
+
+REGLES pour les sections :
 - type "bar" : config doit avoir { xKey, yKeys: [...], colors: [...] }
 - type "composed" : config doit avoir { xKey, bars: [{key, color, name}], line: {key, color, name} }
 - type "grouped_bar" : config doit avoir { xKey, yKeys: [...], colors: [...], names: [...] }
 - type "area_multi" : config doit avoir { xKey, yKeys: [...], colors: [...], names: [...] }
 - type "pie_multi" : doit avoir data_sets: [{label, data: [{name, value}]}]
 - type "table" : doit avoir columns: [{key, label, align?, fmt?, hl?}]
-- Les couleurs disponibles : "#C8FF3C" (lite), "#4A90B8" (signal), "#C45A32" (warm), "#D4A03A" (warning), "#3A8A4A" (success)
+- Couleurs : "#C8FF3C" (lite), "#4A90B8" (signal), "#C45A32" (warm), "#D4A03A" (warning), "#3A8A4A" (success)
 
-Réponds UNIQUEMENT avec un JSON valide, sans markdown :
+Reponds UNIQUEMENT avec un JSON valide, sans markdown :
 {
   "id": "report_<uuid>",
   "title": "...",
@@ -2696,36 +2706,59 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown :
     {
       "title": "...",
       "type": "bar|composed|grouped_bar|area_multi|pie_multi|table",
-      "insight": "Observation analytique clé",
-      "data": [...],
+      "insight": "Observation analytique cle",
+      "table": "nom_de_la_table",
+      "groupBy": "colonne_de_regroupement",
+      "valueColumns": ["col1", {"column": "col2", "aggregate": "sum"}],
+      "filter": {"column": "x", "operator": "=", "value": "y"},
       "config": { ... }
     }
   ]
 }`;
 
+    // ── Generate (with optional SSE streaming) ──
+    let rawText;
+
+    if (wantStream && anthropic) {
+      // SSE streaming path
+      rawText = await streamAnthropicSSE(anthropic, res, "", prompt, { maxTokens: 4000 });
+      // Note: response is already sent via SSE, but we still need to save the report
+      const jsonText = rawText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+      const spec = JSON.parse(jsonText);
+      spec.id = spec.id || `report_${uuidv4()}`;
+      const report = await executeReportSpec(dbAll, workspaceId, spec);
+      await saveReport(report, workspaceId);
+      return; // SSE already ended
+    }
+
+    // Standard (non-streaming) path
     const aiResult = await aiComplete("", prompt, { maxTokens: 4000 });
-    const rawText = aiResult.text.trim();
+    rawText = aiResult.text.trim();
     const jsonText = rawText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    const report = JSON.parse(jsonText);
-    report.id = report.id || `report_${uuidv4()}`;
+    const spec = JSON.parse(jsonText);
+    spec.id = spec.id || `report_${uuidv4()}`;
 
-    // Enrich sections with data source metadata
-    await enrichReportSources(report, workspaceId);
-
-    await dbRun(`
-      INSERT INTO reports (id, title, subtitle, objective, color, icon, kpis, sections, shared, starred, source, workspace_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'ai', ?)
-    `, report.id, report.title, report.subtitle || null, report.objective || null, report.color || "#4A90B8", report.icon || "BarChart3", JSON.stringify(report.kpis || []), JSON.stringify(report.sections || []), workspaceId);
-
-    await dbRun("INSERT INTO usage_logs (action, query, themes, user_id, workspace_id) VALUES (?, ?, ?, ?, ?)",
-      "report_generate", `Generated: ${report.title}`, JSON.stringify(extractThemes(report.title)), "default", workspaceId);
+    // Execute spec: compute real data from clean_data
+    const report = await executeReportSpec(dbAll, workspaceId, spec);
+    await saveReport(report, workspaceId);
 
     res.json({ report });
   } catch (err) {
     console.error("[POST /api/w/:slug/ai/generate-report]", err);
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
+
+// ── Helper: save report to DB ────────────────────────────────────────────────
+async function saveReport(report, workspaceId) {
+  await dbRun(`
+    INSERT INTO reports (id, title, subtitle, objective, color, icon, kpis, sections, shared, starred, source, workspace_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'ai', ?)
+  `, report.id, report.title, report.subtitle || null, report.objective || null, report.color || "#4A90B8", report.icon || "BarChart3", JSON.stringify(report.kpis || []), JSON.stringify(report.sections || []), workspaceId);
+
+  await dbRun("INSERT INTO usage_logs (action, query, themes, user_id, workspace_id) VALUES (?, ?, ?, ?, ?)",
+    "report_generate", `Generated: ${report.title}`, JSON.stringify(extractThemes(report.title)), "default", workspaceId);
+}
 
 // ── TEMPLATE IMPORT ──────────────────────────────────────────────────────────
 
