@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Altares Partners — Tableau de bord</title>
+<link href="https://fonts.googleapis.com/css2?family=Raleway:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --navy: #202146;
+  --navy-light: #2d2e5e;
+  --navy-hover: #2a2b55;
+  --navy-dim: rgba(32,33,70,0.06);
+  --navy-border: rgba(32,33,70,0.12);
+  --bg: #FFFFFF;
+  --surface: #F8F9FC;
+  --text: #202146;
+  --text-sec: #4a4b6e;
+  --text-muted: #8e8fa8;
+  --accent: #202146;
+  --accent-light: #4a4baa;
+  --border: #E8E9F0;
+  --border-sub: #F0F1F6;
+  --success: #2d8a4e;
+  --warning: #c49a2a;
+  --warm: #c44a32;
+  --font-display: 'Raleway', 'Helvetica Neue', sans-serif;
+  --font-body: 'Inter', 'Helvetica Neue', sans-serif;
+  --font-data: 'IBM Plex Mono', monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#F4F5F9;font-family:var(--font-body);color:var(--text);-webkit-font-smoothing:antialiased;display:flex;height:100vh;overflow:hidden}
+
+/* ── Sidebar ── */
+.sidebar{width:240px;background:var(--navy);display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-logo{padding:20px 20px 24px;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,0.08)}
+.logo-icon{width:36px;height:36px;background:rgba(255,255,255,0.1);border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative}
+.logo-icon svg{width:20px;height:20px;fill:none;stroke:white;stroke-width:1.5}
+.logo-icon .dot{position:absolute;width:3px;height:3px;border-radius:50%;background:rgba(255,255,255,0.6)}
+.logo-text{display:flex;flex-direction:column}
+.logo-name{font-family:var(--font-display);font-weight:600;font-size:14px;color:white;letter-spacing:0.04em;text-transform:uppercase}
+.logo-tag{font-family:var(--font-display);font-weight:300;font-style:italic;font-size:9px;color:rgba(255,255,255,0.45);letter-spacing:0.02em}
+
+.nav-group{padding:16px 0 4px}
+.nav-group-label{font-family:var(--font-data);font-size:9px;text-transform:uppercase;letter-spacing:0.12em;color:rgba(255,255,255,0.25);padding:0 20px;margin-bottom:6px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 20px;font-size:13px;color:rgba(255,255,255,0.55);cursor:pointer;transition:all 0.15s;border-left:2px solid transparent;font-family:var(--font-body)}
+.nav-item:hover{background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.8)}
+.nav-item.active{background:rgba(255,255,255,0.08);color:white;border-left-color:rgba(255,255,255,0.6)}
+.nav-item svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;flex-shrink:0}
+
+.sidebar-footer{margin-top:auto;padding:16px 20px;border-top:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:10px}
+.avatar{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-family:var(--font-data);font-size:11px;color:rgba(255,255,255,0.6);font-weight:600}
+.sidebar-user{font-size:12px;color:rgba(255,255,255,0.5)}
+.sidebar-user strong{color:rgba(255,255,255,0.8);font-weight:500;display:block}
+
+/* ── Main ── */
+.main{flex:1;display:flex;flex-direction:column;overflow-y:auto}
+.topbar{padding:16px 32px;display:flex;justify-content:space-between;align-items:center;background:white;border-bottom:1px solid var(--border)}
+.topbar h1{font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:-0.01em}
+.topbar-actions{display:flex;gap:8px}
+.btn{padding:8px 16px;border-radius:8px;font-family:var(--font-body);font-size:12px;font-weight:500;cursor:pointer;border:none;display:flex;align-items:center;gap:6px;transition:all 0.15s}
+.btn-primary{background:var(--navy);color:white}
+.btn-primary:hover{background:var(--navy-light)}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text-sec)}
+.btn-ghost:hover{border-color:var(--navy-border);background:var(--navy-dim)}
+
+.content{padding:24px 32px;flex:1}
+
+/* ── KPI Cards ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.kpi-card{background:white;border:1px solid var(--border);border-radius:10px;padding:18px 20px}
+.kpi-label{font-family:var(--font-data);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:8px}
+.kpi-value{font-family:var(--font-body);font-size:26px;font-weight:600;color:var(--text);letter-spacing:-0.02em}
+.kpi-trend{font-family:var(--font-data);font-size:10px;margin-top:4px;display:flex;align-items:center;gap:3px}
+.kpi-trend.up{color:var(--success)}.kpi-trend.down{color:var(--warm)}
+
+/* ── Charts ── */
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.chart-card{background:white;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.chart-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-sub)}
+.chart-title{font-family:var(--font-body);font-weight:600;font-size:13px;color:var(--text)}
+.chart-badge{font-family:var(--font-data);font-size:9px;text-transform:uppercase;letter-spacing:0.06em;padding:3px 10px;border-radius:9999px;background:var(--navy-dim);color:var(--navy)}
+.chart-body{padding:20px;position:relative}
+
+/* Fake bar chart */
+.bars{display:flex;align-items:flex-end;gap:8px;height:160px;padding-top:10px}
+.bar-col{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1}
+.bar{width:100%;border-radius:4px 4px 0 0;transition:height 0.3s}
+.bar.navy{background:var(--navy)}.bar.light{background:rgba(32,33,70,0.15)}
+.bar-label{font-family:var(--font-data);font-size:8px;color:var(--text-muted);text-transform:uppercase}
+
+/* Fake donut */
+.donut-wrap{display:flex;align-items:center;justify-content:center;gap:32px}
+.donut{width:140px;height:140px;border-radius:50%;background:conic-gradient(var(--navy) 0% 42%,rgba(32,33,70,0.3) 42% 68%,rgba(32,33,70,0.12) 68% 85%,rgba(32,33,70,0.05) 85% 100%);position:relative}
+.donut::after{content:'';position:absolute;inset:30px;border-radius:50%;background:white}
+.donut-legend{display:flex;flex-direction:column;gap:8px}
+.donut-item{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-sec)}
+.donut-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+
+/* Insight box */
+.insight{background:var(--navy-dim);border-left:3px solid var(--navy);border-radius:0 6px 6px 0;padding:10px 14px;margin:12px 20px 0;font-size:11px;color:var(--text-sec);line-height:1.6}
+
+/* ── Table ── */
+.table-card{background:white;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.table-inner{width:100%;border-collapse:collapse;font-size:12px}
+.table-inner th{font-family:var(--font-data);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);background:var(--surface);padding:10px 16px;text-align:left;border-bottom:1px solid var(--border);font-weight:500}
+.table-inner td{padding:10px 16px;border-bottom:1px solid var(--border-sub);color:var(--text-sec)}
+.table-inner tr:last-child td{border-bottom:none}
+.table-inner tr:hover{background:var(--navy-dim)}
+.table-inner .mono{font-family:var(--font-data);font-size:11px;font-variant-numeric:tabular-nums}
+.table-inner .right{text-align:right}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:9999px;font-family:var(--font-data);font-size:9px;text-transform:uppercase;letter-spacing:0.04em}
+.pill::before{content:'';width:5px;height:5px;border-radius:50%}
+.pill.ok{background:rgba(45,138,78,0.08);color:#2d8a4e}.pill.ok::before{background:#2d8a4e}
+.pill.warn{background:rgba(196,154,42,0.08);color:#a07a18}.pill.warn::before{background:#c49a2a}
+.pill.err{background:rgba(196,74,50,0.08);color:#c44a32}.pill.err::before{background:#c44a32}
+
+/* Stars decoration (constellation motif) */
+.stars{position:absolute;top:0;right:0;width:120px;height:80px;opacity:0.04;pointer-events:none}
+.stars circle{fill:var(--navy)}
+</style>
+</head>
+<body>
+
+<!-- ═══ Sidebar ═══ -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24"><path d="M12 3L4 9v12h16V9l-8-6z" stroke-linejoin="round"/><path d="M12 3v6" /><circle cx="12" cy="3" r="1.5" fill="white" stroke="none"/></svg>
+      <span class="dot" style="top:8px;left:6px"></span>
+      <span class="dot" style="top:14px;left:10px"></span>
+      <span class="dot" style="top:6px;left:22px"></span>
+    </div>
+    <div class="logo-text">
+      <span class="logo-name">Altares Partners</span>
+      <span class="logo-tag">Catalyseurs d'entreprise</span>
+    </div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Cadrer</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18M3 9h18"/></svg>Initiatives</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M12 20V10M6 20V4M18 20v-6"/></svg>Diagnostic</div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Observer</div>
+    <div class="nav-item active"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Tableau de bord</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>Enquetes</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>Signaux</div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Agir</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Plan d'action</div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Rendre compte</div>
+    <div class="nav-item"><svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>Vue COMEX</div>
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="avatar">NT</div>
+    <div class="sidebar-user"><strong>N. Thomas</strong>Directeur</div>
+  </div>
+</aside>
+
+<!-- ═══ Main content ═══ -->
+<div class="main">
+
+  <div class="topbar">
+    <h1>Tableau de bord</h1>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>PDF</button>
+      <button class="btn btn-primary"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>Explorer</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- KPIs -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Chiffre d'affaires</div>
+        <div class="kpi-value">4,2M &euro;</div>
+        <div class="kpi-trend up">&uarr; +8,3% vs N-1</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Taux d'occupation</div>
+        <div class="kpi-value">87,4%</div>
+        <div class="kpi-trend up">&uarr; +2,1 pts</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Actes realises</div>
+        <div class="kpi-value">12 840</div>
+        <div class="kpi-trend down">&darr; -1,2%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Score qualite</div>
+        <div class="kpi-value">8.6/10</div>
+        <div class="kpi-trend up">&uarr; +0.4 pts</div>
+      </div>
+    </div>
+
+    <!-- Charts row -->
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">Activite par modalite</span>
+          <span class="chart-badge">Trimestriel</span>
+        </div>
+        <div class="chart-body" style="position:relative">
+          <svg class="stars" viewBox="0 0 120 80"><circle cx="15" cy="12" r="2"/><circle cx="45" cy="8" r="1.5"/><circle cx="80" cy="20" r="2.5"/><circle cx="100" cy="10" r="1.5"/><circle cx="60" cy="35" r="1"/></svg>
+          <div class="bars">
+            <div class="bar-col"><div class="bar navy" style="height:70%"></div><div class="bar light" style="height:45%"></div><div class="bar-label">IRM</div></div>
+            <div class="bar-col"><div class="bar navy" style="height:85%"></div><div class="bar light" style="height:55%"></div><div class="bar-label">Scanner</div></div>
+            <div class="bar-col"><div class="bar navy" style="height:55%"></div><div class="bar light" style="height:40%"></div><div class="bar-label">Radio</div></div>
+            <div class="bar-col"><div class="bar navy" style="height:40%"></div><div class="bar light" style="height:35%"></div><div class="bar-label">Echo</div></div>
+            <div class="bar-col"><div class="bar navy" style="height:30%"></div><div class="bar light" style="height:20%"></div><div class="bar-label">Mammo</div></div>
+            <div class="bar-col"><div class="bar navy" style="height:20%"></div><div class="bar light" style="height:15%"></div><div class="bar-label">Autre</div></div>
+          </div>
+        </div>
+        <div class="insight">Le scanner et l'IRM representent 62% de l'activite totale du trimestre. Le taux de remplissage IRM est au-dessus de la cible de 85%.</div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <span class="chart-title">Repartition du CA</span>
+          <span class="chart-badge">Annuel</span>
+        </div>
+        <div class="chart-body">
+          <div class="donut-wrap">
+            <div class="donut"></div>
+            <div class="donut-legend">
+              <div class="donut-item"><div class="donut-dot" style="background:var(--navy)"></div>IRM &mdash; 42%</div>
+              <div class="donut-item"><div class="donut-dot" style="background:rgba(32,33,70,0.3)"></div>Scanner &mdash; 26%</div>
+              <div class="donut-item"><div class="donut-dot" style="background:rgba(32,33,70,0.12)"></div>Radiologie &mdash; 17%</div>
+              <div class="donut-item"><div class="donut-dot" style="background:rgba(32,33,70,0.05)"></div>Autres &mdash; 15%</div>
+            </div>
+          </div>
+        </div>
+        <div class="insight">L'IRM reste le principal contributeur au CA avec une progression de 12% sur l'exercice. Focus recommande sur l'echographie pour diversifier les revenus.</div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-card">
+      <div class="chart-header">
+        <span class="chart-title">Suivi par site</span>
+        <span class="chart-badge">Temps reel</span>
+      </div>
+      <table class="table-inner">
+        <thead>
+          <tr><th>Site</th><th>Modalites</th><th class="right">CA mensuel</th><th class="right">Taux occup.</th><th class="right">Actes/jour</th><th>Statut</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Centre Paris 15e</strong></td><td>IRM, Scanner, Radio</td><td class="right mono">185 400 &euro;</td><td class="right mono">92,1%</td><td class="right mono">48</td><td><span class="pill ok">Optimal</span></td></tr>
+          <tr><td><strong>Clinique Lyon 3e</strong></td><td>IRM, Echo, Mammo</td><td class="right mono">142 800 &euro;</td><td class="right mono">88,4%</td><td class="right mono">36</td><td><span class="pill ok">Optimal</span></td></tr>
+          <tr><td><strong>Centre Marseille</strong></td><td>Scanner, Radio</td><td class="right mono">98 200 &euro;</td><td class="right mono">76,8%</td><td class="right mono">28</td><td><span class="pill warn">Attention</span></td></tr>
+          <tr><td><strong>Cabinet Bordeaux</strong></td><td>IRM, Radio</td><td class="right mono">67 500 &euro;</td><td class="right mono">64,2%</td><td class="right mono">18</td><td><span class="pill err">Critique</span></td></tr>
+          <tr><td><strong>Centre Nantes</strong></td><td>Scanner, Echo</td><td class="right mono">112 300 &euro;</td><td class="right mono">85,9%</td><td class="right mono">32</td><td><span class="pill ok">Optimal</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

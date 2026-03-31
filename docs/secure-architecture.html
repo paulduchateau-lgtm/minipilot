@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>liteChange — Architecture Secure Pipeline (Zero Data in Prompts)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300;1,9..40,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,300;1,8..60,400;1,8..60,500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg:#F5F4F0;--surface:#FFFFFF;--text:#1C1D1A;--text-sec:#504E48;--text-muted:#8C8A82;
+  --accent:#6B8A1A;--accent-dim:rgba(107,138,26,0.07);--signal:#4A90B8;--warm:#C45A32;
+  --success:#3A8A4A;--warning:#D4A03A;--border:#E0DDD6;--border-sub:#ECEAE4;
+  --olive-900:#1C1D1A;--olive-800:#2A2B27;--red-bg:rgba(196,90,50,0.06);--red-border:#C45A32;
+  --green-bg:rgba(58,138,74,0.06);--green-border:#3A8A4A;
+  --font-display:'Source Serif 4',Georgia,serif;
+  --font-body:'DM Sans','Helvetica Neue',sans-serif;
+  --font-data:'IBM Plex Mono',Menlo,monospace;
+  --radius-sm:6px;--radius-md:10px;--radius-lg:16px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font-body);line-height:1.65;-webkit-font-smoothing:antialiased}
+.page{max-width:1140px;margin:0 auto;padding:48px 32px 80px}
+
+/* Header */
+.header{display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:24px;margin-bottom:40px;border-bottom:2px solid var(--accent)}
+.logo{display:flex;align-items:baseline}
+.logo-lite{font-family:var(--font-display);font-style:italic;font-weight:300;font-size:24px;color:var(--accent)}
+.logo-change{font-family:var(--font-display);font-weight:400;font-size:24px;color:var(--text)}
+.header-meta{font-family:var(--font-data);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--text-muted)}
+
+/* Typography */
+h1{font-family:var(--font-display);font-weight:500;font-size:32px;letter-spacing:-.02em;margin-bottom:8px}
+h2{font-family:var(--font-display);font-weight:500;font-size:22px;margin-top:56px;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-family:var(--font-body);font-weight:600;font-size:15px;margin-top:28px;margin-bottom:8px}
+p{max-width:680px;margin-bottom:12px;font-size:14px;color:var(--text-sec)}
+.lead{font-size:15px;color:var(--text-sec);max-width:680px;margin-bottom:32px}
+code{font-family:var(--font-data);font-size:11px;padding:2px 6px;background:var(--border-sub);border-radius:4px;color:var(--text)}
+.data-label{font-family:var(--font-data);font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.12em;color:var(--text-muted)}
+
+/* Badges */
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:9999px;font-family:var(--font-data);font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.06em}
+.badge::before{content:'';width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.badge-safe{background:rgba(58,138,74,0.1);color:var(--success)}.badge-safe::before{background:var(--success)}
+.badge-danger{background:rgba(196,90,50,0.1);color:var(--warm)}.badge-danger::before{background:var(--warm)}
+.badge-local{background:rgba(107,138,26,0.1);color:var(--accent)}.badge-local::before{background:var(--accent)}
+.badge-cloud{background:rgba(74,144,184,0.1);color:var(--signal)}.badge-cloud::before{background:var(--signal)}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:20px 24px;margin-bottom:16px}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.card-title{font-weight:600;font-size:14px}
+
+/* Schema blocks */
+.schema-block{background:var(--olive-900);color:#E8E6E1;border-radius:var(--radius-md);padding:20px 24px;margin:16px 0 24px;overflow-x:auto;font-family:var(--font-data);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.schema-block .kw{color:#B0D838}.schema-block .type{color:#7AB4D4}.schema-block .comment{color:#6B7260}.schema-block .warm{color:#E08A68}
+
+/* Pipeline vertical */
+.pipeline-v{display:flex;flex-direction:column;gap:0;margin:32px 0}
+.pipe-step{display:grid;grid-template-columns:72px 1fr;gap:0;position:relative}
+.pipe-rail{display:flex;flex-direction:column;align-items:center;position:relative}
+.pipe-num{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:var(--font-data);font-size:13px;font-weight:600;color:white;flex-shrink:0;z-index:2}
+.pipe-num.accent{background:var(--accent)}.pipe-num.signal{background:var(--signal)}.pipe-num.warm{background:var(--warm)}.pipe-num.success{background:var(--success)}
+.pipe-line{flex:1;width:2px;background:var(--border);margin-top:4px}
+.pipe-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:16px 20px;margin-bottom:16px;margin-top:-4px}
+.pipe-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.pipe-card-title{font-family:var(--font-body);font-weight:600;font-size:14px}
+.pipe-card-sub{font-size:12px;color:var(--text-sec);margin-bottom:10px;max-width:none}
+
+/* Flow boxes */
+.flow-steps{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.flow-row{display:flex;align-items:stretch;gap:8px}
+.flow-box{flex:1;background:var(--border-sub);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:11px}
+.flow-box.dark{background:var(--olive-900);color:#E8E6E1;border-color:#3a3b37}
+.flow-box .fb-label{font-family:var(--font-data);font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);display:block;margin-bottom:3px}
+.flow-box.dark .fb-label{color:#6B7260}
+.flow-box.dark code{background:rgba(255,255,255,0.08);color:#B0D838}
+.flow-box.safe{background:var(--green-bg);border-color:var(--green-border)}
+.flow-box.danger{background:var(--red-bg);border-color:var(--red-border)}
+.flow-arrow{display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--border);flex-shrink:0;width:20px}
+.flow-arrow-down{text-align:center;color:var(--border);font-size:16px;padding:2px 0}
+
+/* Message box */
+.msg-box{background:var(--olive-900);border-radius:var(--radius-sm);padding:10px 14px;font-family:var(--font-data);font-size:10px;line-height:1.7;color:#C0BEB8;margin:8px 0;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+.msg-box .kw{color:#B0D838}.msg-box .val{color:#7AB4D4}.msg-box .cmt{color:#6B7260}.msg-box .warn{color:#E08A68}
+
+/* Phase separators */
+.phase-sep{display:flex;align-items:center;gap:12px;margin:24px 0 8px;padding-left:72px}
+.phase-sep-line{flex:1;height:1px;background:var(--border)}
+.phase-sep-label{font-family:var(--font-data);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;padding:4px 14px;border-radius:9999px;flex-shrink:0}
+.phase-sep-label.schema{background:var(--signal);color:white}
+.phase-sep-label.execute{background:var(--accent);color:white}
+.phase-sep-label.narrate{background:var(--warning);color:white}
+.phase-sep-label.assemble{background:var(--success);color:white}
+
+/* Comparison grid */
+.compare-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0}
+.compare-col{border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden}
+.compare-header{padding:12px 16px;font-family:var(--font-data);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em}
+.compare-header.current{background:var(--warm);color:white}
+.compare-header.secure{background:var(--success);color:white}
+.compare-body{padding:16px;background:var(--surface);font-size:12px;color:var(--text-sec);line-height:1.8}
+.compare-body strong{color:var(--text);font-weight:500}
+.compare-body .x{color:var(--warm);font-weight:600;margin-right:4px}
+.compare-body .ok{color:var(--success);font-weight:600;margin-right:4px}
+
+/* Security zone diagram */
+.zone{border:2px solid;border-radius:var(--radius-lg);padding:20px;margin:16px 0;position:relative}
+.zone.trusted{border-color:var(--success);background:var(--green-bg)}
+.zone.network{border-color:var(--warm);background:var(--red-bg)}
+.zone-label{position:absolute;top:-10px;left:16px;font-family:var(--font-data);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;padding:2px 10px;border-radius:4px;color:white}
+.zone-label.trusted{background:var(--success)}
+.zone-label.network{background:var(--warm)}
+.zone-items{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.zone-item{padding:6px 12px;border-radius:var(--radius-sm);font-family:var(--font-data);font-size:10px;border:1px solid var(--border);background:var(--surface)}
+.zone-item.never{text-decoration:line-through;opacity:0.5;color:var(--warm)}
+
+/* Tech grid */
+.tech-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:16px;margin-bottom:24px}
+.tech-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;display:flex;flex-direction:column;gap:4px}
+.tech-name{font-family:var(--font-data);font-size:12px;font-weight:500;color:var(--text)}
+.tech-role{font-size:12px;color:var(--text-muted)}
+
+@media(max-width:800px){.page{padding:24px 16px}h1{font-size:24px}.compare-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="logo"><span class="logo-lite">lite</span><span class="logo-change">Change</span></div>
+      <span class="data-label" style="margin-top:4px;display:block">Minipilot Secure &mdash; Plan d'architecture</span>
+    </div>
+    <div class="header-meta">Architecture technique &mdash; v1.0<br />Mars 2026</div>
+  </div>
+
+  <h1>Pipeline Zero Data in Prompts</h1>
+  <p class="lead">
+    Architecture cible pour que le LLM ne voie <strong>jamais</strong> de donnees reelles. Il agit comme un planificateur
+    d'analyses, un moteur local execute les calculs, puis le LLM narre les resultats agreges.
+    Aucune donnee individuelle ne quitte le serveur.
+  </p>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 1 — PROBLEME
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>1. Probleme actuel</h2>
+  <p>Aujourd'hui, le serveur injecte des donnees brutes dans chaque prompt LLM. Voici ce qui transite vers les API cloud (Anthropic, Mistral) :</p>
+
+  <div class="compare-grid">
+    <div class="compare-col">
+      <div class="compare-header current">&#9888; Architecture actuelle</div>
+      <div class="compare-body">
+        <span class="x">&#10007;</span> Jusqu'a <strong>200 lignes brutes</strong> envoyees dans le prompt<br />
+        <span class="x">&#10007;</span> <strong>Echantillons de donnees reelles</strong> (montants, identifiants, dates)<br />
+        <span class="x">&#10007;</span> <strong>Distributions completes</strong> (toutes les valeurs uniques + frequences)<br />
+        <span class="x">&#10007;</span> <strong>Statistiques</strong> min/max/avg par colonne<br />
+        <span class="x">&#10007;</span> <strong>Cross-tabulations</strong> categoriel x numerique<br />
+        <span class="x">&#10007;</span> Contexte projet (nom, secteur, objectifs)<br />
+        <span class="x">&#10007;</span> Historique de chat complet
+      </div>
+    </div>
+    <div class="compare-col">
+      <div class="compare-header secure">&#128274; Architecture cible</div>
+      <div class="compare-body">
+        <span class="ok">&#10003;</span> Noms de tables, colonnes, types <strong>(schema uniquement)</strong><br />
+        <span class="ok">&#10003;</span> Nombre de lignes, cardinalite par colonne<br />
+        <span class="ok">&#10003;</span> Contexte projet (non-sensible)<br />
+        <span class="ok">&#10003;</span> Resultats <strong>agreges uniquement</strong> (totaux, pourcentages)<br />
+        <span class="ok">&#10003;</span> Seuil de k-anonymat (groupes &lt; 5 &rarr; masques)<br /><br />
+        <strong>Jamais :</strong> lignes individuelles, identifiants, montants unitaires, dates, noms, distributions brutes
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 2 — PIPELINE 3 PHASES
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>2. Pipeline securise en 3 phases</h2>
+
+  <div class="pipeline-v">
+
+    <!-- Phase 1: Schema -->
+    <div class="phase-sep" style="padding-left:0">
+      <span class="phase-sep-label schema">Phase 1 &mdash; Schema Analysis</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num signal">1</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Extraction du schema (zero donnees)</span>
+          <span class="badge badge-safe">Safe</span>
+        </div>
+        <p class="pipe-card-sub">Le serveur extrait uniquement les metadonnees structurelles. Aucune valeur reelle.</p>
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box dark"><span class="fb-label">SQL</span><code>SELECT DISTINCT table_name FROM clean_data WHERE workspace_id = ?</code><br /><code>SELECT columns FROM clean_data WHERE table_name = ? LIMIT 1</code><br /><code>SELECT COUNT(*) FROM clean_data WHERE table_name = ?</code></div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box safe"><span class="fb-label">buildSecureSchema()</span>
+              Produit :
+              <strong>table_name</strong>, <strong>column_name</strong>, <strong>column_type</strong>, <strong>row_count</strong>, <strong>cardinality</strong> (nombre de valeurs uniques)<br />
+              <em>Pas de valeurs, pas de min/max, pas d'echantillons</em>
+            </div>
+          </div>
+        </div>
+        <div class="msg-box"><span class="cmt">// Ce qui sort de buildSecureSchema() :</span>
+[{ <span class="kw">"name"</span>: <span class="val">"prestations"</span>, <span class="kw">"rowCount"</span>: <span class="val">1280</span>,
+   <span class="kw">"columns"</span>: [
+     { <span class="kw">"name"</span>: <span class="val">"montant_prestation"</span>, <span class="kw">"type"</span>: <span class="val">"number"</span>, <span class="kw">"cardinality"</span>: <span class="val">847</span> },
+     { <span class="kw">"name"</span>: <span class="val">"garantie"</span>,            <span class="kw">"type"</span>: <span class="val">"string"</span>, <span class="kw">"cardinality"</span>: <span class="val">12</span> },
+     { <span class="kw">"name"</span>: <span class="val">"date_sinistre"</span>,       <span class="kw">"type"</span>: <span class="val">"date"</span>,   <span class="kw">"cardinality"</span>: <span class="val">365</span> }
+   ]}]
+<span class="cmt">// Aucune valeur reelle, aucun echantillon, aucune statistique</span></div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num signal">2</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Prompt LLM &rarr; Analysis Plan</span>
+          <span class="badge badge-cloud">Cloud</span>
+        </div>
+        <p class="pipe-card-sub">Le LLM recoit le schema + le contexte projet et retourne un plan d'analyse structure (JSON).</p>
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">Prompt envoye au LLM</span>
+              Schema des tables (noms, types, cardinalite)<br />
+              Contexte projet (nom, secteur, objectifs)<br />
+              Consigne : "Conçois un plan d'analyse pour ce jeu de donnees"<br />
+              <em>Zero donnee reelle dans ce prompt</em>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">LLM retourne</span>
+              <strong>Analysis Plan JSON</strong> :<br />
+              &bull; KPIs a calculer (quelle aggregation, quelle colonne)<br />
+              &bull; Sections : type de chart, group_by, metrics, filtres<br />
+              &bull; Configs Recharts (xKey, yKeys, colors)
+            </div>
+          </div>
+        </div>
+        <div class="msg-box"><span class="cmt">// Extrait de l'Analysis Plan retourne par le LLM :</span>
+{ <span class="kw">"kpis"</span>: [
+    { <span class="kw">"label"</span>: <span class="val">"Total prestations"</span>,
+      <span class="kw">"table"</span>: <span class="val">"prestations"</span>,
+      <span class="kw">"aggregation"</span>: <span class="val">"sum"</span>,
+      <span class="kw">"column"</span>: <span class="val">"montant_prestation"</span>,
+      <span class="kw">"format"</span>: <span class="val">"money"</span> }
+  ],
+  <span class="kw">"sections"</span>: [
+    { <span class="kw">"title"</span>: <span class="val">"Prestations par garantie"</span>,
+      <span class="kw">"chart_type"</span>: <span class="val">"bar"</span>,
+      <span class="kw">"table"</span>: <span class="val">"prestations"</span>,
+      <span class="kw">"group_by"</span>: <span class="val">"garantie"</span>,
+      <span class="kw">"metrics"</span>: [{ <span class="kw">"column"</span>: <span class="val">"montant_prestation"</span>, <span class="kw">"aggregation"</span>: <span class="val">"sum"</span> }],
+      <span class="kw">"sort"</span>: { <span class="kw">"by"</span>: <span class="val">"total"</span>, <span class="kw">"order"</span>: <span class="val">"desc"</span> },
+      <span class="kw">"limit"</span>: <span class="val">10</span> }
+  ] }
+<span class="cmt">// Le LLM decrit QUOI calculer, pas les resultats</span></div>
+      </div>
+    </div>
+
+    <!-- Phase 2: Execute -->
+    <div class="phase-sep" style="padding-left:0">
+      <span class="phase-sep-label execute">Phase 2 &mdash; Execution locale</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">3</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Validation du plan</span>
+          <span class="badge badge-local">Local</span>
+        </div>
+        <p class="pipe-card-sub">Chaque reference du plan est validee contre le schema reel. Deny-by-default.</p>
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box safe"><span class="fb-label">PlanValidator</span>
+              <strong>Whitelist de tables</strong> &rarr; extraite de <code>clean_data</code><br />
+              <strong>Whitelist de colonnes</strong> &rarr; par table, depuis le JSON <code>columns</code><br />
+              <strong>Whitelist d'aggregations</strong> &rarr; <code>count | count_distinct | sum | avg | min | max | median | ratio</code><br />
+              <strong>Whitelist de chart_type</strong> &rarr; <code>bar | grouped_bar | area_multi | composed | pie_multi | table</code><br /><br />
+              Si un nom de table/colonne/fonction n'est pas dans la whitelist &rarr; <strong>plan rejete</strong>, retry ou fallback template
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">4</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Execution SQL locale</span>
+          <span class="badge badge-local">Local</span>
+        </div>
+        <p class="pipe-card-sub">Le PlanExecutor traduit le plan en requetes SQL parametrees et les execute contre SQLite. <strong>Zero appel reseau.</strong></p>
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">Plan &rarr; SQL</span>
+              Le plan est traduit en requetes <code>SELECT</code> avec <code>json_extract(row_data, '$.col')</code>, <code>GROUP BY</code>, <code>ORDER BY</code>, <code>LIMIT</code><br />
+              Les noms de colonnes sont valides (whitelist) puis injectes dans le path JSON.<br />
+              Les valeurs de filtre utilisent des <strong>prepared statements</strong> (<code>?</code>).
+            </div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box dark"><span class="fb-label">SQL genere (exemple)</span><code>SELECT
+  json_extract(row_data, '$.garantie') AS garantie,
+  SUM(CAST(json_extract(row_data, '$.montant_prestation') AS REAL)) AS total
+FROM clean_data
+WHERE table_name = <span class="warn">?</span> AND workspace_id = <span class="warn">?</span>
+  AND json_extract(row_data, '$.montant_prestation') IS NOT NULL
+GROUP BY json_extract(row_data, '$.garantie')
+ORDER BY total DESC
+LIMIT <span class="warn">?</span></code></div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box safe"><span class="fb-label">Resultat : donnees chart-ready</span>
+              <code>[{garantie: "Optique", total: 890000}, {garantie: "Dentaire", total: 650000}, ...]</code><br />
+              + KPIs calcules : <code>{label: "Total", value: "2 450 000 EUR"}</code><br />
+              + Configs Recharts (xKey, yKeys, colors) issues du plan
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Phase 3: Narrate -->
+    <div class="phase-sep" style="padding-left:0">
+      <span class="phase-sep-label narrate">Phase 3 &mdash; Narration</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num warm">5</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Sanitisation des resultats</span>
+          <span class="badge badge-local">Local</span>
+        </div>
+        <p class="pipe-card-sub">Avant d'envoyer les resultats au LLM, le InsightSanitizer filtre ce qui peut sortir.</p>
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box safe"><span class="fb-label">Regles de filtrage</span>
+              <strong>Autorise :</strong> labels de categories (group_by), totaux, moyennes, pourcentages, tendances<br />
+              <strong>Interdit :</strong> lignes individuelles, identifiants, dates unitaires, montants par personne<br />
+              <strong>K-anonymat :</strong> groupes &lt; 5 lignes &rarr; fusionnes dans "Autres" ou supprimes du prompt<br />
+              <strong>Arrondi :</strong> valeurs monetaires arrondies au millier pour eviter la re-identification
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num warm">6</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Generation des insights</span>
+          <span class="badge badge-cloud">Cloud</span>
+        </div>
+        <p class="pipe-card-sub">Le LLM recoit les resultats sanitises et genere le texte analytique.</p>
+        <div class="msg-box"><span class="cmt">// Prompt Phase 3 (envoye au LLM)</span>
+
+<span class="kw">SCHEMA</span> (rappel) : prestations (garantie, montant_prestation, ...)
+
+<span class="kw">RESULTATS AGREGES</span> :
+KPI "Total prestations" : <span class="val">2 450 000 EUR</span>
+KPI "Beneficiaires" : <span class="val">1 234</span>
+
+Section "Prestations par garantie" (bar) :
+  Optique: <span class="val">890k</span> | Dentaire: <span class="val">650k</span> | Hospitalisation: <span class="val">430k</span> | ...
+
+<span class="kw">MISSION</span> : Genere un insight analytique professionnel pour chaque section.
+Retourne : { <span class="kw">"insights"</span>: [{<span class="kw">"section_id"</span>, <span class="kw">"text"</span>}] }</div>
+      </div>
+    </div>
+
+    <!-- Phase: Assembly -->
+    <div class="phase-sep" style="padding-left:0">
+      <span class="phase-sep-label assemble">Assemblage</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num success">7</div><div class="pipe-line" style="background:transparent"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Assemblage du rapport final</span>
+          <span class="badge badge-local">Local</span>
+        </div>
+        <p class="pipe-card-sub">Le ReportAssembler fusionne les donnees (Phase 2) et les textes (Phase 3) dans le format rapport standard.</p>
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">Phase 2 (donnees)</span>KPIs calcules<br />Donnees charts (data[])<br />Configs Recharts (config)</div>
+            <div class="flow-arrow">+</div>
+            <div class="flow-box"><span class="fb-label">Phase 3 (texte)</span>Titre, sous-titre, objectif<br />Insights par section<br />Interpretation des KPIs</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box safe"><span class="fb-label">Rapport final</span>Format identique a l'actuel<br /><code>{title, kpis[], sections[{data, config, insight}]}</code><br />Le frontend ne change pas</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 3 — SECURITY ZONES
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>3. Zones de securite</h2>
+
+  <div class="zone trusted">
+    <span class="zone-label trusted">Zone de confiance (ne quitte jamais le serveur)</span>
+    <div class="zone-items">
+      <div class="zone-item">SQLite (clean_data, data_rows)</div>
+      <div class="zone-item">PlanValidator</div>
+      <div class="zone-item">PlanExecutor (SQL)</div>
+      <div class="zone-item">InsightSanitizer</div>
+      <div class="zone-item">ReportAssembler</div>
+      <div class="zone-item">buildSecureSchema()</div>
+    </div>
+  </div>
+
+  <div class="zone network">
+    <span class="zone-label network">Frontiere reseau (ce qui traverse)</span>
+    <p style="font-size:12px;margin:8px 0 4px;"><strong>Autorise :</strong></p>
+    <div class="zone-items">
+      <div class="zone-item">Noms de tables</div>
+      <div class="zone-item">Noms de colonnes + types</div>
+      <div class="zone-item">Row counts, cardinalite</div>
+      <div class="zone-item">Totaux, moyennes, %</div>
+      <div class="zone-item">Labels de categories</div>
+      <div class="zone-item">Contexte projet</div>
+    </div>
+    <p style="font-size:12px;margin:12px 0 4px;"><strong>Interdit (jamais) :</strong></p>
+    <div class="zone-items">
+      <div class="zone-item never">Lignes individuelles</div>
+      <div class="zone-item never">Echantillons de donnees</div>
+      <div class="zone-item never">Min / max par colonne</div>
+      <div class="zone-item never">Distributions de valeurs</div>
+      <div class="zone-item never">Identifiants / noms / PII</div>
+      <div class="zone-item never">Montants unitaires</div>
+      <div class="zone-item never">Cross-tabulations brutes</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 4 — FICHIERS
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>4. Fichiers a creer</h2>
+
+  <h3>Nouveaux modules (<code>server/secure/</code>)</h3>
+  <div class="tech-grid">
+    <div class="tech-item"><span class="tech-name">schema-builder.js</span><span class="tech-role">buildSecureSchema() &mdash; extrait table names, col names, types, counts, cardinality. Zero valeurs.</span></div>
+    <div class="tech-item"><span class="tech-name">plan-prompt.js</span><span class="tech-role">Templates de prompts Phase 1 et Phase 3. Contient les schemas JSON attendus.</span></div>
+    <div class="tech-item"><span class="tech-name">plan-validator.js</span><span class="tech-role">validatePlan() &mdash; whitelist tables, colonnes, aggregations. Deny-by-default.</span></div>
+    <div class="tech-item"><span class="tech-name">plan-executor.js</span><span class="tech-role">executePlan() &mdash; traduit plan en SQL parametrise, execute contre SQLite.</span></div>
+    <div class="tech-item"><span class="tech-name">insight-sanitizer.js</span><span class="tech-role">sanitizeForNarration() &mdash; filtre les resultats avant envoi au LLM. K-anonymat.</span></div>
+    <div class="tech-item"><span class="tech-name">report-assembler.js</span><span class="tech-role">assembleReport() &mdash; fusionne donnees + narration en rapport JSON standard.</span></div>
+  </div>
+
+  <h3>Fichiers modifies</h3>
+  <div class="tech-grid">
+    <div class="tech-item"><span class="tech-name">server/index.js</span><span class="tech-role">Les 6 endpoints AI basculent sur le pipeline 3 phases. Flag <code>AI_SECURE=true</code>.</span></div>
+  </div>
+
+  <h3>Fichiers inchanges</h3>
+  <p>Tout le frontend (React, Recharts, RenderSection, DashboardPage, FullReport, PDF export) reste <strong>strictement identique</strong>. Le format de rapport JSON en sortie est le meme.</p>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 5 — EDGE CASES
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>5. Cas limites et securite</h2>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Plan invalide du LLM</span></div>
+    <p>Le LLM peut generer un plan referencant des colonnes inexistantes.</p>
+    <p><strong>1.</strong> <code>validatePlan()</code> retourne <code>{valid: false, errors: [...]}</code><br />
+    <strong>2.</strong> Retry avec prompt correctif : "La colonne X n'existe pas, les colonnes disponibles sont Y, Z"<br />
+    <strong>3.</strong> Si 2e echec &rarr; fallback sur un template generique (count par categoriel, sum/avg par numerique)</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Prevention d'injection SQL</span></div>
+    <p>Le LLM ne genere <strong>jamais</strong> de SQL. Il genere un plan JSON declaratif. Le PlanExecutor construit le SQL en interne :</p>
+    <p>&bull; Noms de tables/colonnes : valides par <strong>whitelist</strong> (pas d'echappement &mdash; rejet pur)<br />
+    &bull; Valeurs de filtre : <strong>prepared statements</strong> (<code>?</code>)<br />
+    &bull; Fonctions d'aggregation : set fixe hardcode<br />
+    &bull; Path <code>json_extract</code> : construit depuis <code>'$.' + whitelist_column</code> (alphanum + underscore only)</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">K-anonymat (seuil de groupe)</span></div>
+    <p>Si un <code>GROUP BY</code> produit un groupe de moins de N lignes (defaut: 5), le InsightSanitizer fusionne ce groupe dans "Autres" avant envoi au LLM Phase 3. Empeche la re-identification par petits groupes.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Complexite du plan</span></div>
+    <p>Limites hardcodees : max 6 KPIs, max 8 sections, max 3 metrics par section, max 20 resultats par group_by, max 30 requetes SQL par plan.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Defense en profondeur (mode Ollama)</span></div>
+    <p>Meme en mode local (Ollama), le pipeline securise s'applique. Si Ollama est un jour configure pour proxyer vers un endpoint distant, ou si une future version ajoute de la telemetrie, les donnees restent protegees. La securite ne depend pas de la couche transport.</p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 6 — SEQUENCAGE
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>6. Sequencage d'implementation</h2>
+
+  <div class="pipeline-v">
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">A</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-title">schema-builder.js + plan-prompt.js</div>
+        <p class="pipe-card-sub">Extraction du schema securise + templates de prompts. Testable independamment.</p>
+      </div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">B</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-title">plan-validator.js</div>
+        <p class="pipe-card-sub">Validation whitelist avec tests exhaustifs (colonnes invalides, injections, edge cases).</p>
+      </div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">C</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-title">plan-executor.js</div>
+        <p class="pipe-card-sub">Traduction plan &rarr; SQL + execution. Piece la plus complexe. Tester avec clean_data JSON blobs.</p>
+      </div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">D</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-title">insight-sanitizer.js + report-assembler.js</div>
+        <p class="pipe-card-sub">Filtrage k-anonymat + fusion donnees/texte en rapport JSON standard.</p>
+      </div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num warm">E</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-title">Integration dans index.js</div>
+        <p class="pipe-card-sub">Remplacement des 6 endpoints AI par le pipeline 3 phases. Flag <code>AI_SECURE=true</code> pour rollout progressif.</p>
+      </div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num warm">F</div><div class="pipe-line" style="background:transparent"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-title">Adaptation du chat</div>
+        <p class="pipe-card-sub">Pipeline securise pour le chat conversationnel. Cache de "faits calcules" par session.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="margin-top:64px;padding-top:16px;border-top:2px solid var(--accent);display:flex;justify-content:space-between;align-items:center">
+    <div class="logo"><span class="logo-lite">lite</span><span class="logo-change">Change</span></div>
+    <span class="data-label">Architecture technique &mdash; Confidentiel</span>
+  </div>
+
+</div>
+</body>
+</html>

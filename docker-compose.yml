@@ -1,0 +1,56 @@
+# Minipilot — Docker Compose
+# Usage:
+#   docker compose up -d          → start all services
+#   docker compose logs -f app    → view app logs
+#   docker compose down            → stop all services
+#
+# Data persisted in ./docker-data/ (SQLite DB + Ollama models)
+
+services:
+  app:
+    build: .
+    container_name: minipilot
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DOCKER=1
+      - DB_PATH=/data/minipilot.db
+      - UPLOADS_DIR=/data/uploads
+      - OLLAMA_BASE_URL=http://ollama:11434
+      # Optional: set these for premium AI mode
+      # - ANTHROPIC_API_KEY=sk-ant-...
+      # - MISTRAL_API_KEY=...
+    volumes:
+      - ./docker-data/db:/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: minipilot-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./docker-data/ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # Pull Ministral 3B model on first run
+  ollama-init:
+    image: curlimages/curl:latest
+    container_name: minipilot-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "curl -s http://ollama:11434/api/pull -d '{\"name\": \"ministral:3b\"}' && echo 'Model ready'"
+    restart: "no"

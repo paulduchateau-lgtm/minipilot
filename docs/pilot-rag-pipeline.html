@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pilot &mdash; Architecture : Analyse IA sans data leakage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300;1,9..40,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,300;1,8..60,400;1,8..60,500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg: #0F1012; --surface: #1A1C1E; --text: #E8E6E1; --text-sec: #A8A5A0;
+  --text-muted: #6B6860; --accent: #C8FF3C; --accent-dim: rgba(200,255,60,0.06);
+  --signal: #7AB4D4; --warm: #E08A68; --success: #3A8A4A; --warning: #D4A03A;
+  --border: #2A2C2E; --border-sub: #222426;
+  --font-display: 'Source Serif 4', Georgia, serif;
+  --font-body: 'DM Sans', 'Helvetica Neue', sans-serif;
+  --font-data: 'IBM Plex Mono', Menlo, monospace;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font-body); line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.page { max-width: 1140px; margin: 0 auto; padding: 48px 32px 80px; }
+.header { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 24px; margin-bottom: 40px; border-bottom: 2px solid var(--accent); }
+.logo { display: flex; align-items: baseline; gap: 2px; }
+.logo-lite { font-family: var(--font-display); font-style: italic; font-weight: 300; font-size: 24px; color: var(--accent); }
+.logo-ops { font-family: var(--font-display); font-weight: 400; font-size: 24px; color: var(--text); }
+.header-meta { font-family: var(--font-data); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); text-align: right; }
+h1 { font-family: var(--font-display); font-weight: 500; font-size: 32px; letter-spacing: -0.02em; margin-bottom: 8px; }
+h2 { font-family: var(--font-display); font-weight: 500; font-size: 22px; letter-spacing: -0.01em; margin-top: 56px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-family: var(--font-body); font-weight: 600; font-size: 15px; margin-top: 32px; margin-bottom: 8px; }
+p { max-width: 680px; margin-bottom: 12px; font-size: 14px; color: var(--text-sec); }
+.lead { font-size: 15px; color: var(--text-sec); max-width: 680px; margin-bottom: 32px; }
+.data-label { font-family: var(--font-data); font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); }
+code { font-family: var(--font-data); font-size: 11px; padding: 2px 6px; background: var(--border); border-radius: 4px; color: var(--accent); }
+
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 9999px; font-family: var(--font-data); font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; }
+.badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.badge-backend { background: rgba(200,255,60,0.1); color: var(--accent); } .badge-backend::before { background: var(--accent); }
+.badge-ai { background: rgba(224,138,104,0.1); color: var(--warm); } .badge-ai::before { background: var(--warm); }
+.badge-frontend { background: rgba(122,180,212,0.1); color: var(--signal); } .badge-frontend::before { background: var(--signal); }
+.badge-perf { background: rgba(58,138,74,0.1); color: var(--success); } .badge-perf::before { background: var(--success); }
+.badge-archi { background: rgba(212,160,58,0.1); color: var(--warning); } .badge-archi::before { background: var(--warning); }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px 24px; margin-bottom: 16px; }
+.card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.card-title { font-weight: 600; font-size: 14px; }
+
+.schema-block { background: #111214; color: #E8E6E1; border-radius: var(--radius-md); padding: 20px 24px; margin: 16px 0 24px; overflow-x: auto; font-family: var(--font-data); font-size: 12px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; border: 1px solid var(--border); }
+.schema-block .kw { color: #C8FF3C; } .schema-block .type { color: #7AB4D4; } .schema-block .comment { color: #6B7260; } .schema-block .warm { color: #E08A68; }
+
+.compare-table { width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; margin: 16px 0 24px; }
+.compare-table th { font-family: var(--font-data); font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; background: var(--border); color: var(--text-muted); padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+.compare-table td { padding: 10px 14px; border-bottom: 1px solid var(--border-sub); vertical-align: top; color: var(--text-sec); }
+.compare-table tr:last-child td { border-bottom: none; }
+.compare-table .highlight { background: rgba(200,255,60,0.04); }
+.compare-table .bad { color: var(--warm); }
+
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin: 20px 0; }
+.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; text-align: center; }
+.kpi-value { font-family: var(--font-data); font-size: 22px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.kpi-label { font-family: var(--font-data); font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+
+.pipeline-v { display: flex; flex-direction: column; gap: 0; margin: 32px 0; }
+.pipe-step { display: grid; grid-template-columns: 72px 1fr; gap: 0; position: relative; }
+.pipe-rail { display: flex; flex-direction: column; align-items: center; position: relative; }
+.pipe-num { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-family: var(--font-data); font-size: 13px; font-weight: 600; color: #0F1012; flex-shrink: 0; z-index: 2; }
+.pipe-num.accent { background: var(--accent); } .pipe-num.signal { background: var(--signal); color: white; } .pipe-num.warm { background: var(--warm); color: white; } .pipe-num.success { background: var(--success); color: white; }
+.pipe-line { flex: 1; width: 2px; background: var(--border); margin-top: 4px; }
+.pipe-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px 20px; margin-bottom: 16px; margin-top: -4px; }
+.pipe-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.pipe-card-title { font-family: var(--font-body); font-weight: 600; font-size: 14px; }
+.pipe-card-sub { font-size: 12px; color: var(--text-sec); margin-bottom: 10px; max-width: none; }
+
+.flow-steps { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.flow-row { display: flex; align-items: stretch; gap: 8px; }
+.flow-box { flex: 1; background: var(--border-sub); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; font-size: 11px; }
+.flow-box.dark { background: #111214; color: #E8E6E1; border-color: #2a2c2e; }
+.flow-box .fb-label { font-family: var(--font-data); font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); display: block; margin-bottom: 3px; }
+.flow-box.dark .fb-label { color: #6B7260; }
+.flow-arrow { display: flex; align-items: center; justify-content: center; font-size: 14px; color: #4A4C4E; flex-shrink: 0; width: 20px; }
+.flow-arrow-down { text-align: center; color: #4A4C4E; font-size: 16px; padding: 2px 0; }
+
+.phase-sep { display: flex; align-items: center; gap: 12px; margin: 24px 0 8px; padding-left: 72px; }
+.phase-sep-line { flex: 1; height: 1px; background: var(--border); }
+.phase-sep-label { font-family: var(--font-data); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; padding: 4px 14px; border-radius: 9999px; flex-shrink: 0; }
+.phase-sep-label.ingest { background: var(--accent); color: #0F1012; }
+.phase-sep-label.compute { background: var(--signal); color: white; }
+.phase-sep-label.query { background: var(--warm); color: white; }
+.phase-sep-label.generate { background: var(--success); color: white; }
+
+.msg-box { background: #111214; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; font-family: var(--font-data); font-size: 10px; line-height: 1.7; color: #C0BEB8; margin: 8px 0; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+.msg-box .kw { color: #C8FF3C; } .msg-box .val { color: #7AB4D4; } .msg-box .cmt { color: #6B7260; } .msg-box .bad { color: #E08A68; }
+
+.decision-box { background: var(--surface); border: 2px dashed var(--warning); border-radius: var(--radius-md); padding: 16px 20px; margin: 16px 0; font-size: 12px; }
+.decision-box .title { font-weight: 600; font-size: 13px; margin-bottom: 8px; color: var(--warning); }
+
+.api-table { width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; margin-top: 16px; margin-bottom: 24px; }
+.api-table th { font-family: var(--font-data); font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; background: var(--border); color: var(--text-muted); padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+.api-table td { padding: 10px 14px; border-bottom: 1px solid var(--border-sub); vertical-align: top; color: var(--text-sec); }
+.api-table tr:last-child td { border-bottom: none; }
+.method { font-family: var(--font-data); font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; display: inline-block; }
+.method-post { background: rgba(200,255,60,0.15); color: var(--accent); }
+
+.tech-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; margin-bottom: 24px; }
+.tech-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
+.tech-name { font-family: var(--font-data); font-size: 12px; font-weight: 500; color: var(--text); }
+.tech-role { font-size: 12px; color: var(--text-muted); }
+
+@media (max-width: 800px) { .page { padding: 24px 16px; } h1 { font-size: 24px; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <div>
+      <div class="logo"><span class="logo-lite">Pilot</span><span class="logo-ops"> by Lite Ops</span></div>
+      <span class="data-label" style="margin-top: 4px; display: block;">Architecture &mdash; Materialized Analytics Layer</span>
+    </div>
+    <div class="header-meta">Decision record &mdash; v2.0<br />Mars 2026</div>
+  </div>
+
+  <h1>Supprimer les donnees brutes des prompts IA</h1>
+  <p class="lead">
+    Pilot analyse des donnees tabulaires (Excel, CSV). Aujourd'hui, les rows sont injectees en brut dans les prompts.
+    Ce n'est ni un probleme de RAG (les donnees ne sont pas du texte non structure), ni un probleme de recherche semantique.
+    C'est un probleme de <strong>materialisation</strong> : pre-calculer l'intelligence a la transformation,
+    pour que le LLM raisonne sur des <em>faits derives</em>, pas sur des lignes CSV.
+  </p>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 0 — DIAGNOSTIC
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>0. Diagnostic : pourquoi c'est lent et risque</h2>
+
+  <h3>Le probleme n'est pas l'IA &mdash; c'est ce qu'on lui envoie</h3>
+  <p>Aujourd'hui, chaque appel IA execute cette sequence :</p>
+
+  <div class="flow-steps">
+    <div class="flow-row">
+      <div class="flow-box"><span class="fb-label">1. Query DB</span><code>SELECT row_data FROM clean_data</code><br />Charge <strong>toutes les rows</strong> via reseau (Turso)</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box"><span class="fb-label">2. Compute stats</span>min/max/avg/uniques<br />Calcule en JS a chaque requete</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box"><span class="fb-label">3. Build prompt</span>~12,000 tokens<br />20 rows + stats + context</div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-box"><span class="fb-label">4. LLM call</span>Claude API<br />Paye pour 12K tokens d'entree</div>
+    </div>
+  </div>
+
+  <p style="margin-top:16px"><strong>3 problemes distincts :</strong></p>
+  <table class="compare-table">
+    <thead><tr><th>Probleme</th><th>Impact</th><th>Cause racine</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Latence</strong></td>
+        <td class="bad">30-45s par appel IA</td>
+        <td>Chargement de toutes les rows via reseau + re-calcul stats + prompt massif</td>
+      </tr>
+      <tr>
+        <td><strong>Cout tokens</strong></td>
+        <td class="bad">12K tokens/appel (dont 8K de data inutile)</td>
+        <td>Le LLM recoit des rows brutes au lieu de faits pre-digeres</td>
+      </tr>
+      <tr>
+        <td><strong>Confidentialite</strong></td>
+        <td class="bad">Lignes nominatives envoyees a l'API</td>
+        <td>Aucune couche d'anonymisation / agregation entre la DB et le prompt</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="decision-box">
+    <div class="title">&#9888; Decision architecturale : Materialized Analytics, pas RAG classique</div>
+    <p style="margin:0; font-size: 12px; color: var(--text-sec);">Un pipeline RAG classique (chunk &rarr; embed &rarr; cosine search) est concu pour du <strong>texte non structure</strong> (docs, PDF, mails). Les donnees de Pilot sont <strong>structurees et tabulaires</strong>. La bonne abstraction est une <strong>couche de materialisation</strong> : pre-calculer des vues analytiques (agregats, distributions, anomalies) au moment du transform, les stocker, et ne fournir au LLM que ces faits derives.</p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 1 — ARCHITECTURE CIBLE
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>1. Architecture cible : Materialized Analytics Layer</h2>
+
+  <div class="kpi-row">
+    <div class="kpi-card">
+      <div class="kpi-value">0</div>
+      <div class="kpi-label">Rows brutes dans le prompt</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">~2K</div>
+      <div class="kpi-label">Tokens par prompt</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">&lt;5s</div>
+      <div class="kpi-label">Latence suggest</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-value">SSE</div>
+      <div class="kpi-label">Streaming generation</div>
+    </div>
+  </div>
+
+  <div class="pipeline-v">
+
+    <div class="phase-sep">
+      <span class="phase-sep-label ingest">Phase 1 &mdash; Transform &amp; Materialize</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">1</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Upload &amp; Transform</span>
+          <span class="badge badge-backend">Inchange</span>
+        </div>
+        <p class="pipe-card-sub">Le pipeline actuel reste identique. Les donnees arrivent dans <code>clean_data</code> avec types detectes et formats normalises.</p>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">2</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Materialisation des vues analytiques</span>
+          <span class="badge badge-archi">Coeur V2</span>
+        </div>
+        <p class="pipe-card-sub">A la fin du transform, un <strong>moteur de materialisation</strong> genere 4 artefacts a partir des donnees brutes. Ces artefacts sont stockes en DB et ne changent que quand les donnees changent.</p>
+
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">A. Schema Fingerprint</span>Nom de table, colonnes, types, cardinalites.<br /><em>"Table sinistres: 4538 rows, 32 cols. organisme (12 unique), cotisation (num, 45-380)..."</em></div>
+            <div class="flow-box"><span class="fb-label">B. Statistical Profile</span>Distributions, outliers, correlations cles.<br /><em>"Cotisation moy 156&#8364; (&#963;=42). Bimodale: pic a 120&#8364; (petits contrats) et 280&#8364; (entreprises)."</em></div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">C. Dimension Summaries</span>Agregats par dimension metier (groupby sur colonnes categoriques).<br /><em>"MGEN: 245 benef, sinistralite 62%. AG2R: 180 benef, sinistralite 71%."</em></div>
+            <div class="flow-box"><span class="fb-label">D. Anomaly Signals</span>Ecarts significatifs, tendances, valeurs extremes.<br /><em>"Alerte: organisme XYZ a une sinistralite de 142% (+2.3&#963; vs moyenne)."</em></div>
+          </div>
+        </div>
+
+        <div class="schema-block"><span class="comment">-- Table : vues analytiques materialisees</span>
+<span class="kw">CREATE TABLE IF NOT EXISTS</span> materialized_views (
+  id <span class="type">TEXT PRIMARY KEY</span>,
+  workspace_id <span class="type">TEXT NOT NULL REFERENCES</span> workspaces(id),
+  table_name <span class="type">TEXT NOT NULL</span>,
+  view_type <span class="type">TEXT NOT NULL</span>,            <span class="comment">-- 'schema' | 'stats' | 'dimensions' | 'anomalies'</span>
+  content_text <span class="type">TEXT NOT NULL</span>,         <span class="comment">-- resume en langage naturel</span>
+  content_json <span class="type">TEXT</span>,                  <span class="comment">-- donnees structurees pour le frontend</span>
+  computed_at <span class="type">DATETIME DEFAULT CURRENT_TIMESTAMP</span>
+);
+<span class="kw">CREATE INDEX</span> idx_mv_ws <span class="kw">ON</span> materialized_views(workspace_id, view_type);</div>
+
+        <div class="decision-box">
+          <div class="title">Pourquoi materialiser plutot qu'embedder ?</div>
+          <p style="margin:0; font-size: 12px; color: var(--text-sec);"><strong>Embeddings</strong> = utile quand la question est imprevue et qu'il faut chercher dans du texte libre. Ici, les questions sont previsibles (<em>"suggere des rapports"</em>, <em>"genere un rapport sur X"</em>) et les donnees sont structurees. Une materialisation deterministe est plus rapide (0 appel API), moins chere (0 token d'embedding), plus fiable (pas de perte d'info cosine), et plus auditable (on sait exactement ce que le LLM voit).</p>
+          <p style="margin:8px 0 0; font-size: 11px; color: var(--text-muted);">Si un besoin de recherche semantique emerge plus tard (ex: chat libre sur les donnees), on pourra ajouter des embeddings sur les <code>content_text</code> des vues materialisees &mdash; pas sur les rows brutes.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="phase-sep">
+      <span class="phase-sep-label compute">Phase 2 &mdash; Moteur de materialisation</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num signal">3</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Schema Fingerprint</span>
+          <span class="badge badge-perf">Zero IA</span>
+        </div>
+        <p class="pipe-card-sub">Genere automatiquement a partir des metadonnees deja presentes dans <code>clean_data.columns</code>. Aucun appel LLM. Instant.</p>
+        <div class="msg-box"><span class="cmt">// Exemple de content_text genere</span>
+<span class="val">Table "sinistres" : 4,538 lignes, 32 colonnes.
+  Numeriques (22) : cotisation (45-380), montant_sinistre (0-12,400), nb_beneficiaires (1-890)...
+  Texte (8) : organisme (12 uniques), type_contrat (3 uniques : collectif, individuel, mixte)...
+  Dates (2) : date_survenance (2024-01 to 2026-03), date_reglement (2024-03 to 2026-03)</span></div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num signal">4</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Statistical Profile</span>
+          <span class="badge badge-perf">Zero IA</span>
+        </div>
+        <p class="pipe-card-sub">Statistiques descriptives avancees calculees cote serveur. Inclut distributions, quartiles, correlations entre colonnes numeriques, detection de bimodalite.</p>
+        <div class="msg-box"><span class="cmt">// Exemple</span>
+<span class="val">Cotisation : moy=156&#8364;, med=142&#8364;, Q1=98, Q3=210, &#963;=42.
+  Distribution bimodale : pic 1 a 120&#8364; (petits contrats N=1,200), pic 2 a 280&#8364; (entreprises N=890).
+  Correlation : cotisation &harr; nb_beneficiaires r=0.74 (forte).
+  Taux de remplissage : 98.2% (82 valeurs nulles sur 4,538).</span></div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num signal">5</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Dimension Summaries</span>
+          <span class="badge badge-perf">Zero IA</span>
+        </div>
+        <p class="pipe-card-sub">Agregations automatiques par chaque colonne categorique (GROUP BY). Detect la colonne de regroupement la plus pertinente (plus haute cardinalite utile). Genere un resume par modalite.</p>
+        <div class="msg-box"><span class="cmt">// Exemple : groupby organisme</span>
+<span class="val">Par organisme (12 modalites) :
+  MGEN : 245 benef, cotisation moy 148&#8364;, sinistralite 62%, 3 contrats collectifs.
+  AG2R : 180 benef, cotisation moy 165&#8364;, sinistralite 71%, tendance haussiere Q4.
+  Harmonie : 420 benef, cotisation moy 132&#8364;, sinistralite 58%, meilleur ratio du portefeuille.
+  ... (9 autres organismes)</span>
+
+<span class="cmt">// Exemple : groupby type_contrat</span>
+<span class="val">Par type_contrat (3 modalites) :
+  Collectif : 3,200 lignes (70%), cotisation moy 168&#8364;, sinistralite moy 65%.
+  Individuel : 1,100 lignes (24%), cotisation moy 128&#8364;, sinistralite moy 72%.
+  Mixte : 238 lignes (5%), cotisation moy 195&#8364;, sinistralite moy 54%.</span></div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num signal">6</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Anomaly Signals</span>
+          <span class="badge badge-perf">Zero IA</span>
+        </div>
+        <p class="pipe-card-sub">Detection statistique d'anomalies : z-scores &gt; 2, valeurs hors IQR, tendances monotones, ruptures de distribution. Chaque anomalie est textualisee.</p>
+        <div class="msg-box"><span class="cmt">// Exemple</span>
+<span class="val">3 anomalies detectees :
+  [ALERTE] Organisme "Previfrance" : sinistralite 142% (z=+2.3, moyenne 68%). Investiguer.
+  [TENDANCE] Cotisation moyenne en hausse de 8% sur les 6 derniers mois.
+  [OUTLIER] 23 lignes avec montant_sinistre = 0 et statut "rembourse". Incohérence possible.</span></div>
+      </div>
+    </div>
+
+    <div class="phase-sep">
+      <span class="phase-sep-label query">Phase 3 &mdash; Prompt IA</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num warm">7</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Construction du prompt &mdash; depuis les vues materialisees</span>
+          <span class="badge badge-ai">AI</span>
+        </div>
+        <p class="pipe-card-sub">Le prompt est assemble a partir des <code>content_text</code> des vues materialisees. Aucun <code>SELECT</code> sur <code>clean_data</code>. Une seule requete DB : <code>SELECT content_text FROM materialized_views WHERE workspace_id = ?</code>.</p>
+
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">DB Query</span>1 seule requete :<br /><code>SELECT view_type, content_text FROM materialized_views WHERE workspace_id = ?</code></div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">Prompt Assembly</span>context + schema + stats + dimensions + anomalies<br />~2,000 tokens total</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">LLM Call</span>Claude API<br />Streaming SSE</div>
+          </div>
+        </div>
+
+        <div class="msg-box"><span class="cmt">// Prompt V2 (~2K tokens au lieu de ~12K)</span>
+
+<span class="kw">CONTEXTE PROJET :</span>
+<span class="val">Assurance Lyon &mdash; Analyse du portefeuille sante collective.</span>
+
+<span class="kw">SCHEMA :</span>
+<span class="val">[schema fingerprint]</span>
+
+<span class="kw">PROFIL STATISTIQUE :</span>
+<span class="val">[statistical profile]</span>
+
+<span class="kw">DIMENSIONS METIER :</span>
+<span class="val">[dimension summaries &mdash; top 5 modalites par dimension]</span>
+
+<span class="kw">SIGNAUX :</span>
+<span class="val">[anomaly signals]</span>
+
+<span class="kw">INSTRUCTION :</span>
+<span class="val">Suggere 5 a 8 rapports analytiques pertinents pour ces donnees.
+Base-toi uniquement sur les faits ci-dessus. Ne fabrique pas de donnees.</span></div>
+      </div>
+    </div>
+
+    <div class="phase-sep">
+      <span class="phase-sep-label generate">Phase 4 &mdash; Generation &amp; Streaming</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num success">8</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Streaming SSE + Code Interpreter pattern</span>
+          <span class="badge badge-frontend">Frontend + Backend</span>
+        </div>
+        <p class="pipe-card-sub">Le LLM genere une <strong>spec de rapport</strong> (titres, types de charts, KPIs a calculer), pas les donnees du rapport. Les donnees sont calculees cote serveur a partir des <code>clean_data</code> via des requetes SQL generees par le LLM.</p>
+
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">LLM Output</span><em>Spec</em> : "Barchart cotisation par organisme,<br />KPI: sinistralite moyenne,<br />Filter: type_contrat = collectif"</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">Query Builder</span>Traduit la spec en queries SQL<br />sur <code>clean_data</code> (cote serveur,<br />jamais envoye au LLM)</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">Rapport final</span>Spec + donnees calculees<br />&rarr; JSON complet pour le frontend</div>
+          </div>
+        </div>
+
+        <div class="decision-box">
+          <div class="title">Pourquoi ce pattern "spec + compute" ?</div>
+          <p style="margin:0; font-size: 12px; color: var(--text-sec);"><strong>Aujourd'hui</strong> : le LLM invente les chiffres du rapport a partir de l'echantillon de 20 rows. Les valeurs sont souvent fausses ou approximatives. <strong>Demain</strong> : le LLM genere une specification (quoi calculer, comment grouper, quels filtres), et le serveur execute les calculs reels sur 100% des donnees. Les chiffres sont exacts.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num success">9</div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Frontend : affichage progressif</span>
+          <span class="badge badge-frontend">Frontend</span>
+        </div>
+        <p class="pipe-card-sub">Les tokens SSE arrivent en &lt;2s. Le frontend affiche d'abord le titre et les KPIs, puis les sections au fur et a mesure. Fin du spinner de 30 secondes.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 2 — PLAN D'IMPLEMENTATION
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>2. Plan d'implementation</h2>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Phase 1 &mdash; Materialized Views (impact immediat)</span><span class="badge badge-backend">Backend</span></div>
+    <p style="font-size:12px; color: var(--text-sec);">Creer la table <code>materialized_views</code>. Implementer les 4 materialiseurs (schema, stats, dimensions, anomalies) dans une fonction <code>materialize(workspaceId)</code>. L'appeler a la fin de <code>POST /transform</code>. Remplacer <code>buildDataSummary()</code> et <code>buildColumnStats()</code> par une lecture de <code>materialized_views</code>. Le prompt passe de ~12K a ~2K tokens. <strong>Zero appel IA supplementaire &mdash; 100% deterministe.</strong></p>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Phase 2 &mdash; Refactoring des prompts</span><span class="badge badge-ai">AI</span></div>
+    <p style="font-size:12px; color: var(--text-sec);">Remplacer le contenu des prompts <code>suggest-reports</code> et <code>generate-report</code>. Utiliser les <code>content_text</code> des vues materialisees. Adapter les system prompts pour que le LLM raisonne sur des faits derives plutot que sur des echantillons de rows. Valider la qualite des suggestions.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Phase 3 &mdash; Streaming SSE</span><span class="badge badge-frontend">Frontend + Backend</span></div>
+    <p style="font-size:12px; color: var(--text-sec);">Ajouter le streaming SSE sur les routes IA. Backend : <code>res.writeHead(200, {'Content-Type': 'text/event-stream'})</code>, pipe les tokens Claude/Mistral au client. Frontend : <code>fetch</code> + <code>ReadableStream</code> avec affichage incremental du JSON. Time to first token : &lt;2s.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Phase 4 &mdash; Spec + Compute (qualite des chiffres)</span><span class="badge badge-archi">Architecture</span></div>
+    <p style="font-size:12px; color: var(--text-sec);">Refactorer <code>generate-report</code> : le LLM genere une <em>spec</em> (colonnes, groupby, filtres, type de chart) et le serveur execute les requetes SQL pour produire les vraies donnees du rapport. Plus de chiffres inventes. Necessite un <code>QueryBuilder</code> qui traduit les specs LLM en requetes SQL sur <code>clean_data</code>.</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Phase 5 &mdash; Embeddings optionnels (chat libre)</span><span class="badge badge-ai">Optionnel</span></div>
+    <p style="font-size:12px; color: var(--text-sec);">Si le chat libre sur les donnees devient un besoin, embedder les <code>content_text</code> des vues materialisees (pas les rows brutes). Vector search pour trouver les vues pertinentes a une question. Reutiliser le pipeline Voyage AI de Sailor. Mais ce n'est pas prioritaire &mdash; les phases 1-4 couvrent 90% du besoin.</p>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 3 — GAINS ATTENDUS
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>3. Gains attendus</h2>
+
+  <table class="compare-table">
+    <thead><tr><th>Metrique</th><th>V1 (actuel)</th><th>Apres Phase 1</th><th>Apres Phase 4</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Tokens prompt</strong></td>
+        <td class="bad">~12,000</td>
+        <td class="highlight">~2,000</td>
+        <td class="highlight">~1,500 (spec only)</td>
+      </tr>
+      <tr>
+        <td><strong>Latence suggest</strong></td>
+        <td class="bad">30-45s</td>
+        <td class="highlight">&lt;10s</td>
+        <td class="highlight">&lt;5s + streaming</td>
+      </tr>
+      <tr>
+        <td><strong>Latence generate</strong></td>
+        <td class="bad">25-40s</td>
+        <td class="highlight">&lt;15s</td>
+        <td class="highlight">&lt;3s TTFT (SSE)</td>
+      </tr>
+      <tr>
+        <td><strong>Rows dans prompt</strong></td>
+        <td class="bad">20 par table</td>
+        <td class="highlight">0</td>
+        <td class="highlight">0</td>
+      </tr>
+      <tr>
+        <td><strong>Exactitude chiffres</strong></td>
+        <td class="bad">Approximatifs (echantillon)</td>
+        <td>Approximatifs (stats pre-calculees)</td>
+        <td class="highlight">Exacts (SQL sur 100% des rows)</td>
+      </tr>
+      <tr>
+        <td><strong>Cout API / rapport</strong></td>
+        <td class="bad">~$0.04</td>
+        <td class="highlight">~$0.01</td>
+        <td class="highlight">~$0.008</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="margin-top: 32px; font-size: 13px; color: var(--text-muted); font-family: var(--font-data); letter-spacing: 0.02em;">&copy; Lite Ops &mdash; Mars 2026 &mdash; Pilot Architecture v2.0</p>
+
+</div>
+</body>
+</html>

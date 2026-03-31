@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>liteChange Minipilot — Architecture du Pipeline de Donnees</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300;1,9..40,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,300;1,8..60,400;1,8..60,500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg: #F5F4F0; --surface: #FFFFFF; --text: #1C1D1A; --text-sec: #504E48;
+  --text-muted: #8C8A82; --accent: #6B8A1A; --accent-dim: rgba(107,138,26,0.07);
+  --signal: #4A90B8; --warm: #C45A32; --success: #3A8A4A; --warning: #D4A03A;
+  --border: #E0DDD6; --border-sub: #ECEAE4; --olive-900: #1C1D1A; --olive-800: #2A2B27;
+  --paper-300: #E0DDD6; --paper-400: #D0CCC4;
+  --font-display: 'Source Serif 4', Georgia, serif;
+  --font-body: 'DM Sans', 'Helvetica Neue', sans-serif;
+  --font-data: 'IBM Plex Mono', Menlo, monospace;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font-body); line-height: 1.65; -webkit-font-smoothing: antialiased; }
+.page { max-width: 1140px; margin: 0 auto; padding: 48px 32px 80px; }
+
+/* Header */
+.header { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 24px; margin-bottom: 40px; border-bottom: 2px solid var(--accent); }
+.logo { display: flex; align-items: baseline; }
+.logo-lite { font-family: var(--font-display); font-style: italic; font-weight: 300; font-size: 24px; color: var(--accent); }
+.logo-change { font-family: var(--font-display); font-weight: 400; font-size: 24px; color: var(--text); }
+.header-meta { font-family: var(--font-data); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); }
+
+/* Typography */
+h1 { font-family: var(--font-display); font-weight: 500; font-size: 32px; letter-spacing: -0.02em; margin-bottom: 8px; }
+h2 { font-family: var(--font-display); font-weight: 500; font-size: 22px; letter-spacing: -0.01em; margin-top: 56px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-family: var(--font-body); font-weight: 600; font-size: 15px; margin-top: 32px; margin-bottom: 8px; }
+p { max-width: 680px; margin-bottom: 12px; font-size: 14px; color: var(--text-sec); }
+.lead { font-size: 15px; color: var(--text-sec); max-width: 680px; margin-bottom: 32px; }
+.data-label { font-family: var(--font-data); font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); }
+code { font-family: var(--font-data); font-size: 11px; padding: 2px 6px; background: var(--border-sub); border-radius: 4px; color: var(--text); }
+
+/* Badges */
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 9999px; font-family: var(--font-data); font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; }
+.badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.badge-frontend { background: rgba(74,144,184,0.1); color: #3A7A9E; }
+.badge-frontend::before { background: var(--signal); }
+.badge-backend { background: rgba(107,138,26,0.1); color: var(--accent); }
+.badge-backend::before { background: var(--accent); }
+.badge-ai { background: rgba(196,90,50,0.1); color: var(--warm); }
+.badge-ai::before { background: var(--warm); }
+.badge-export { background: rgba(58,138,74,0.1); color: var(--success); }
+.badge-export::before { background: var(--success); }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 20px 24px; margin-bottom: 16px; }
+.card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.card-title { font-weight: 600; font-size: 14px; }
+
+/* Schema blocks */
+.schema-block { background: var(--olive-900); color: #E8E6E1; border-radius: var(--radius-md); padding: 20px 24px; margin: 16px 0 24px; overflow-x: auto; font-family: var(--font-data); font-size: 12px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.schema-block .kw { color: #B0D838; }
+.schema-block .type { color: #7AB4D4; }
+.schema-block .comment { color: #6B7260; }
+.schema-block .warm { color: #E08A68; }
+
+/* Tech grid */
+.tech-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; margin-bottom: 24px; }
+.tech-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
+.tech-name { font-family: var(--font-data); font-size: 12px; font-weight: 500; color: var(--text); }
+.tech-role { font-size: 12px; color: var(--text-muted); }
+
+/* API table */
+.api-table { width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; margin-top: 16px; margin-bottom: 24px; }
+.api-table th { font-family: var(--font-data); font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; background: var(--border-sub); color: var(--text-muted); padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+.api-table td { padding: 10px 14px; border-bottom: 1px solid var(--border-sub); vertical-align: top; }
+.api-table tr:last-child td { border-bottom: none; }
+.api-table tr:hover { background: var(--accent-dim); }
+.method { font-family: var(--font-data); font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; display: inline-block; }
+.method-post { background: rgba(107,138,26,0.15); color: var(--accent); }
+.method-get { background: rgba(74,144,184,0.15); color: var(--signal); }
+.route { font-family: var(--font-data); font-size: 11px; color: var(--text); }
+
+/* ══════════════════════════════════════════════════════════════════
+   PIPELINE — VERTICAL LAYOUT
+   ══════════════════════════════════════════════════════════════════ */
+.pipeline-v { display: flex; flex-direction: column; gap: 0; margin: 32px 0; }
+
+.pipe-step { display: grid; grid-template-columns: 72px 1fr; gap: 0; position: relative; }
+
+/* Left rail: number + vertical line */
+.pipe-rail { display: flex; flex-direction: column; align-items: center; position: relative; }
+.pipe-num {
+  width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-data); font-size: 13px; font-weight: 600; color: white; flex-shrink: 0; z-index: 2;
+}
+.pipe-num.accent { background: var(--accent); }
+.pipe-num.signal { background: var(--signal); }
+.pipe-num.warm { background: var(--warm); }
+.pipe-num.success { background: var(--success); }
+.pipe-num.warning { background: var(--warning); }
+.pipe-line { flex: 1; width: 2px; background: var(--border); margin-top: 4px; }
+
+/* Right content card */
+.pipe-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 16px 20px; margin-bottom: 16px; margin-top: -4px;
+}
+.pipe-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.pipe-card-title { font-family: var(--font-body); font-weight: 600; font-size: 14px; }
+.pipe-card-sub { font-size: 12px; color: var(--text-sec); margin-bottom: 10px; max-width: none; }
+
+/* Internal flow boxes */
+.flow-steps { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.flow-row { display: flex; align-items: stretch; gap: 8px; }
+.flow-box {
+  flex: 1; background: var(--border-sub); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 8px 12px; font-size: 11px;
+}
+.flow-box.dark { background: var(--olive-900); color: #E8E6E1; border-color: #3a3b37; }
+.flow-box .fb-label { font-family: var(--font-data); font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); display: block; margin-bottom: 3px; }
+.flow-box.dark .fb-label { color: #6B7260; }
+.flow-box code { background: rgba(0,0,0,0.06); font-size: 10px; }
+.flow-box.dark code { background: rgba(255,255,255,0.08); color: #B0D838; }
+.flow-arrow { display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--paper-400); flex-shrink: 0; width: 20px; }
+.flow-arrow-down { text-align: center; color: var(--paper-400); font-size: 16px; padding: 2px 0; }
+
+/* Message transit box */
+.msg-box {
+  background: var(--olive-900); border-radius: var(--radius-sm); padding: 10px 14px;
+  font-family: var(--font-data); font-size: 10px; line-height: 1.7; color: #C0BEB8;
+  margin: 8px 0; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+}
+.msg-box .kw { color: #B0D838; }
+.msg-box .val { color: #7AB4D4; }
+.msg-box .cmt { color: #6B7260; }
+
+/* Phase separator */
+.phase-sep {
+  display: flex; align-items: center; gap: 12px; margin: 24px 0 8px; padding-left: 72px;
+}
+.phase-sep-line { flex: 1; height: 1px; background: var(--border); }
+.phase-sep-label {
+  font-family: var(--font-data); font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.12em; padding: 4px 14px; border-radius: 9999px; flex-shrink: 0;
+}
+.phase-sep-label.onboarding { background: var(--accent); color: white; }
+.phase-sep-label.intelligence { background: var(--warm); color: white; }
+.phase-sep-label.rendering { background: var(--signal); color: white; }
+.phase-sep-label.export-l { background: var(--success); color: white; }
+
+/* Mode comparison */
+.mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
+.mode-col { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+.mode-header { padding: 12px 16px; font-family: var(--font-data); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+.mode-header.premium { background: var(--warm); color: white; }
+.mode-header.offline { background: var(--olive-900); color: #E8E6E1; }
+.mode-body { padding: 16px; background: var(--surface); }
+.mode-step { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border-sub); font-size: 12px; }
+.mode-step:last-child { border-bottom: none; }
+.mode-step-num { font-family: var(--font-data); font-size: 10px; font-weight: 600; color: white; width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.mode-step-num.warm { background: var(--warm); }
+.mode-step-num.dark { background: var(--olive-800); }
+.mode-step-text { color: var(--text-sec); }
+.mode-step-text strong { color: var(--text); font-weight: 500; }
+.mode-step-text code { font-size: 10px; }
+
+/* Fallback chain */
+.fallback { display: flex; align-items: center; gap: 0; margin: 12px 0; flex-wrap: wrap; }
+.fb-node {
+  padding: 6px 14px; border-radius: 8px; font-family: var(--font-data); font-size: 11px; font-weight: 500;
+  border: 1px solid var(--border);
+}
+.fb-node.primary { background: var(--warm); color: white; border-color: var(--warm); }
+.fb-node.secondary { background: rgba(212,160,58,0.1); color: #B08820; border-color: var(--warning); }
+.fb-node.tertiary { background: var(--olive-900); color: #E8E6E1; border-color: #3a3b37; }
+.fb-arrow { font-family: var(--font-data); font-size: 11px; color: var(--text-muted); padding: 0 6px; }
+.fb-label { font-family: var(--font-data); font-size: 9px; color: var(--text-muted); display: block; text-align: center; margin-top: 2px; }
+
+@media (max-width: 800px) { .page { padding: 24px 16px; } h1 { font-size: 24px; } .mode-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <div class="logo"><span class="logo-lite">lite</span><span class="logo-change">Change</span></div>
+      <span class="data-label" style="margin-top: 4px; display: block;">Minipilot &mdash; Architecture technique</span>
+    </div>
+    <div class="header-meta">Documentation produit &mdash; v2.0<br />Mars 2026</div>
+  </div>
+
+  <h1>Pipeline de Donnees</h1>
+  <p class="lead">
+    De l'import du fichier source a la generation du rapport PDF &mdash; chaque brique technique,
+    les messages qui transitent, les requetes SQL executees, et les appels IA dans leurs deux modes de fonctionnement.
+  </p>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 1 — PIPELINE VERTICAL
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>1. Pipeline complet</h2>
+
+  <div class="pipeline-v">
+
+    <!-- ── Phase: Onboarding ── -->
+    <div class="phase-sep">
+      <span class="phase-sep-label onboarding">Phase 1 &mdash; Onboarding</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <!-- Step 1: Upload -->
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">1</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Upload des fichiers</span>
+          <span class="badge badge-backend">Backend</span>
+        </div>
+        <p class="pipe-card-sub">L'utilisateur depose un ou plusieurs fichiers via l'interface. Le serveur parse et stocke les donnees brutes.</p>
+
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">Client &rarr; Server</span><code>POST /api/w/:slug/upload</code><br />Body: <code>multipart/form-data</code> (max 10 fichiers, 50MB chacun)</div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">Multer</span>Ecrit le fichier dans <code>/uploads/{uuid}_{name}</code></div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">Parsing selon type</span>
+              <strong>.xlsx</strong> : <code>XLSX.read(buffer)</code> &rarr; <code>sheet_to_json()</code> par onglet<br />
+              <strong>.csv</strong> : <code>csvParse(content, {delimiter: auto})</code><br />
+              <strong>.json</strong> : <code>JSON.parse()</code>
+            </div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box dark"><span class="fb-label">SQL &mdash; Insertion</span><code>INSERT INTO uploaded_files (id, name, type, columns, row_count, workspace_id)</code><br /><code>INSERT INTO data_rows (file_id, sheet_name, row_data)</code> &times; N lignes</div>
+          </div>
+        </div>
+
+        <div class="msg-box"><span class="cmt">// Response JSON</span>
+{ <span class="kw">"id"</span>: <span class="val">"file_abc123"</span>, <span class="kw">"name"</span>: <span class="val">"sinistralite_2024.xlsx"</span>,
+  <span class="kw">"columns"</span>: [<span class="val">"date"</span>, <span class="val">"montant"</span>, <span class="val">"departement"</span>, ...],
+  <span class="kw">"row_count"</span>: <span class="val">1284</span>, <span class="kw">"sheets"</span>: [<span class="val">"Feuil1"</span>] }</div>
+      </div>
+    </div>
+
+    <!-- Step 2: Context -->
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">2</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Contexte projet</span>
+          <span class="badge badge-frontend">Frontend</span>
+        </div>
+        <p class="pipe-card-sub">L'ecran questionnaire collecte les meta-donnees du projet. Ce contexte sera injecte dans chaque prompt IA.</p>
+
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">Client &rarr; Server</span><code>POST /api/w/:slug/context</code></div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box dark"><span class="fb-label">SQL</span><code>INSERT INTO project_context (workspace_id, project_name, industry, objectives, questionnaire, free_text)</code></div>
+          </div>
+        </div>
+
+        <div class="msg-box"><span class="cmt">// Request body</span>
+{ <span class="kw">"project_name"</span>: <span class="val">"Migration SI Sante"</span>,
+  <span class="kw">"industry"</span>: <span class="val">"assurance"</span>,
+  <span class="kw">"objectives"</span>: <span class="val">"Mesurer l'adoption du nouveau SI par les gestionnaires"</span>,
+  <span class="kw">"questionnaire"</span>: { ... },
+  <span class="kw">"free_text"</span>: <span class="val">"Focus sur les indicateurs de friction"</span> }</div>
+      </div>
+    </div>
+
+    <!-- Step 3: Transform -->
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num accent">3</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Transformation des donnees</span>
+          <span class="badge badge-backend">Backend</span>
+        </div>
+        <p class="pipe-card-sub">Brique centrale : transforme les donnees brutes en donnees propres, normalisees et typees.</p>
+
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">Client &rarr; Server</span><code>POST /api/w/:slug/transform</code></div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box dark"><span class="fb-label">SQL &mdash; Lecture brute</span><code>SELECT row_data FROM data_rows WHERE file_id = ?</code></div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">1. Filtrage</span>Supprime lignes vides</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">2. Normalisation</span><code>normalizeColumnName()</code><br />"Chiffre d'Affaires (EUR)" &rarr; <code>chiffre_daffaires_eur</code></div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">3. Typage</span><code>detectType(50 samples)</code><br />&rarr; number | date | string</div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">4. Conversion</span><code>parseFrenchNumber()</code> : "1 234,56" &rarr; 1234.56<br /><code>normalizeDate()</code> : "15/03/2024" &rarr; "2024-03-15"</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">5. Detection jointures</span>Identifie les colonnes communes entre tables</div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box dark"><span class="fb-label">SQL &mdash; Insertion propre</span><code>DELETE FROM clean_data WHERE workspace_id = ?</code><br /><code>INSERT INTO clean_data (table_name, columns, row_data, workspace_id)</code> &times; N lignes<br /><span style="color:#6B7260">// columns = JSON: [{name, type, nullable}]</span><br /><span style="color:#6B7260">// row_data = JSON: {col1: val1, col2: val2, ...} avec types convertis</span></div>
+          </div>
+        </div>
+
+        <div class="msg-box"><span class="cmt">// Response JSON</span>
+{ <span class="kw">"tables"</span>: [{ <span class="kw">"name"</span>: <span class="val">"sinistralite_2024"</span>, <span class="kw">"rowCount"</span>: <span class="val">1280</span>,
+    <span class="kw">"columns"</span>: [{ <span class="kw">"name"</span>: <span class="val">"montant"</span>, <span class="kw">"type"</span>: <span class="val">"number"</span>, <span class="kw">"nullCount"</span>: <span class="val">4</span> }, ...] }],
+  <span class="kw">"cleanedRows"</span>: <span class="val">1280</span>, <span class="kw">"typedCols"</span>: <span class="val">12</span>, <span class="kw">"numericCols"</span>: <span class="val">5</span>, <span class="kw">"textCols"</span>: <span class="val">6</span>,
+  <span class="kw">"nullValues"</span>: <span class="val">18</span>, <span class="kw">"mergeOpportunities"</span>: [{ <span class="kw">"column"</span>: <span class="val">"departement"</span>, <span class="kw">"tables"</span>: [...] }] }</div>
+      </div>
+    </div>
+
+    <!-- Step 4: Verify -->
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num signal">4</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Verification</span>
+          <span class="badge badge-frontend">Frontend</span>
+        </div>
+        <p class="pipe-card-sub">L'utilisateur valide les types detectes et l'apercu des donnees propres. Trois endpoints de lecture :</p>
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box dark"><span class="fb-label">SQL &mdash; Preview</span><code>SELECT columns, row_data FROM clean_data WHERE table_name = ? AND workspace_id = ? LIMIT 10</code></div>
+          </div>
+          <div class="flow-row" style="margin-top: 6px;">
+            <div class="flow-box dark"><span class="fb-label">SQL &mdash; Stats</span><code>SELECT row_data FROM clean_data WHERE table_name = ? AND workspace_id = ?</code><br /><span style="color:#6B7260">// puis calcul JS: min, max, avg (num) ou uniqueCount, sampleValues (string)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Phase: Intelligence ── -->
+    <div class="phase-sep">
+      <span class="phase-sep-label intelligence">Phase 2 &mdash; Intelligence</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <!-- Step 5: Data enrichment -->
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num warm">5</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Construction du contexte IA</span>
+          <span class="badge badge-backend">Backend</span>
+        </div>
+        <p class="pipe-card-sub">Avant chaque appel LLM, le serveur execute des requetes SQL pour construire un contexte de donnees riche. <strong>Il n'y a pas de text-to-SQL</strong> : le LLM ne genere ni n'execute jamais de SQL. Toutes les donnees sont pre-extraites cote serveur.</p>
+
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box" style="flex: 1;">
+              <span class="fb-label">buildDataSummary(n)</span>
+              Requetes SQL executees :
+              <div class="msg-box" style="margin: 6px 0 0;"><code>SELECT DISTINCT table_name FROM clean_data WHERE workspace_id = ?</code>
+<code>SELECT columns FROM clean_data WHERE table_name = ? LIMIT 1</code>
+<code>SELECT COUNT(*) FROM clean_data WHERE table_name = ?</code>
+<code>SELECT row_data FROM clean_data WHERE table_name = ? LIMIT <span class="val">{n}</span></code>
+<span class="cmt">// n = 5 pour suggestions, 20 pour generation, 10 pour chat</span></div>
+              Produit : nom de table, colonnes + types, rowCount, echantillon de n lignes
+            </div>
+          </div>
+          <div class="flow-row" style="margin-top: 8px;">
+            <div class="flow-box" style="flex: 1;">
+              <span class="fb-label">buildColumnStats()</span>
+              Requetes SQL executees :
+              <div class="msg-box" style="margin: 6px 0 0;"><code>SELECT row_data FROM clean_data WHERE table_name = ? AND workspace_id = ?</code>
+<span class="cmt">// Puis calcul JS sur toutes les lignes :</span>
+<span class="cmt">// - Numeriques: Math.min(), Math.max(), reduce(sum)/count</span>
+<span class="cmt">// - Textuelles: new Set(values).size, [...set].slice(0,5)</span></div>
+              Produit : pour chaque colonne &rarr; {type, nullCount, min, max, avg} ou {uniqueCount, sampleValues}
+            </div>
+          </div>
+          <div class="flow-row" style="margin-top: 8px;">
+            <div class="flow-box" style="flex: 1;">
+              <span class="fb-label">buildFullDataContext() &mdash; Chat uniquement</span>
+              Charge <strong>toutes</strong> les lignes + calcule distributions categorielle, cross-tabulations, percentiles.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 6: AI Generation -->
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num warm">6</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Generation IA</span>
+          <span class="badge badge-ai">IA</span>
+        </div>
+        <p class="pipe-card-sub">Le serveur assemble un prompt avec le contexte projet + les donnees, puis l'envoie au LLM. Le LLM retourne un JSON structuré — il ne genere pas de SQL et n'accede pas a la base.</p>
+
+        <h3 style="margin-top: 12px;">Contenu du prompt envoye au LLM</h3>
+        <div class="msg-box"><span class="kw">CONTEXTE PROJET :</span>
+Projet : <span class="val">Migration SI Sante</span>
+Secteur : <span class="val">assurance</span>
+Objectifs : <span class="val">Mesurer l'adoption du nouveau SI...</span>
+
+<span class="kw">SCHEMA ET DONNEES :</span>
+Table "<span class="val">sinistralite_2024</span>" &mdash; 1280 lignes :
+  - montant (<span class="val">number</span>)
+  - departement (<span class="val">string</span>)
+  - date_sinistre (<span class="val">date</span>)
+Exemple : {"montant": 1234.56, "departement": "Ile-de-France", ...}
+
+<span class="kw">STATISTIQUES :</span>
+Table "sinistralite_2024" :
+  montant: min=<span class="val">12.5</span>, max=<span class="val">48500</span>, avg=<span class="val">2340.8</span>
+  departement: <span class="val">13</span> valeurs uniques
+
+<span class="kw">MISSION :</span>
+Genere un rapport analytique complet avec des donnees <span class="warm">REELLES calculees</span>.
+Reponds UNIQUEMENT avec un JSON valide.</div>
+
+        <h3>Chaine de fallback (mode Premium)</h3>
+        <div class="fallback">
+          <div>
+            <div class="fb-node primary">Claude Sonnet 4</div>
+            <div class="fb-label">Anthropic API</div>
+          </div>
+          <div class="fb-arrow">catch &rarr;</div>
+          <div>
+            <div class="fb-node secondary">Mistral 3B</div>
+            <div class="fb-label">Mistral Cloud</div>
+          </div>
+          <div class="fb-arrow">catch &rarr;</div>
+          <div>
+            <div class="fb-node tertiary">Ollama local</div>
+            <div class="fb-label">localhost:11434</div>
+          </div>
+        </div>
+
+        <h3>Response du LLM &rarr; Stockage</h3>
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">Post-traitement</span>Strip markdown fences<br /><code>JSON.parse()</code> du texte retourne<br />Attribution d'un <code>report_uuid</code></div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box dark"><span class="fb-label">SQL &mdash; Persistance</span><code>INSERT INTO reports (id, title, subtitle, objective, color, icon, kpis, sections, workspace_id)</code><br /><span style="color:#6B7260">// kpis = JSON stringify</span><br /><span style="color:#6B7260">// sections = JSON stringify (contient data[] + config + insight)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Phase: Rendering ── -->
+    <div class="phase-sep">
+      <span class="phase-sep-label rendering">Phase 3 &mdash; Rendu</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <!-- Step 7: Dashboard -->
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num signal">7</div><div class="pipe-line"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Dashboard &amp; rapports</span>
+          <span class="badge badge-frontend">Frontend</span>
+        </div>
+        <p class="pipe-card-sub">React recupere les rapports via API, deserialise les JSON et rend les visualisations.</p>
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box dark"><span class="fb-label">SQL &mdash; Lecture</span><code>SELECT * FROM reports WHERE workspace_id = ? AND trashed = 0 ORDER BY created_at DESC</code></div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">API Response</span><code>GET /api/w/:slug/reports</code><br />Retourne <code>{shared: [...], private: [...]}</code><br />Champs kpis et sections deserialises (JSON.parse)</div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">DashboardPage.jsx</span>Grille de KPIs (4 cols)<br />Grille de ReportCards</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">FullReport.jsx</span>Header + objectif + KPIs<br />&darr; pour chaque section &darr;</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">RenderSection.jsx</span>Switch sur <code>section.type</code> :<br />bar | grouped_bar | area_multi | composed | pie_multi | table<br />&rarr; Recharts SVG</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Phase: Export ── -->
+    <div class="phase-sep">
+      <span class="phase-sep-label export-l">Phase 4 &mdash; Export</span>
+      <div class="phase-sep-line"></div>
+    </div>
+
+    <!-- Step 8: PDF -->
+    <div class="pipe-step">
+      <div class="pipe-rail"><div class="pipe-num success">8</div><div class="pipe-line" style="background: transparent;"></div></div>
+      <div class="pipe-card">
+        <div class="pipe-card-head">
+          <span class="pipe-card-title">Export PDF</span>
+          <span class="badge badge-export">Export</span>
+        </div>
+        <p class="pipe-card-sub">Generation 100% client-side, zero appel serveur. Le module est charge dynamiquement au clic.</p>
+        <div class="flow-steps">
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">1. Import dynamique</span><code>await import("generatePdf.js")</code><br />Code-split par Vite (~410KB, charge uniquement au clic)</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">2. Conteneur cache</span>Un &lt;div&gt; hors-ecran, force light-theme<br /><code>PdfReportRenderer.jsx</code> monte en React</div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">3. Recharts statique</span>Charts rendus avec <code>isAnimationActive={false}</code><br />Taille fixe 760&times;280px, palette light</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">4. Capture</span><code>html2canvas(container, {scale: 2})</code><br />Resolution: ~1600px de large</div>
+          </div>
+          <div class="flow-arrow-down">&darr;</div>
+          <div class="flow-row">
+            <div class="flow-box"><span class="fb-label">5. Pagination A4</span><code>jsPDF("portrait", "mm", "a4")</code><br />Decoupe image en pages 186&times;269mm<br />Numeros de page en footer</div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-box"><span class="fb-label">6. Download</span><code>pdf.save("litechange-{slug}.pdf")</code><br />Contient : header, objectif, KPIs, insights, charts, "Confidentiel"</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /pipeline-v -->
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 2 — MODE PREMIUM vs OFFLINE
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>2. Mode Premium vs Mode Offline</h2>
+  <p>Le mode se bascule en runtime via <code>POST /api/ai/mode</code> avec <code>{"mode": "local"}</code> ou <code>{"mode": "premium"}</code>. Le pipeline data (etapes 1-4, 7-8) est identique. Seule la phase Intelligence (etapes 5-6) change.</p>
+
+  <div class="mode-grid">
+
+    <!-- Premium column -->
+    <div class="mode-col">
+      <div class="mode-header premium">&#9889; Premium &mdash; avec internet</div>
+      <div class="mode-body">
+        <div class="mode-step">
+          <div class="mode-step-num warm">1</div>
+          <div class="mode-step-text"><strong>Provider :</strong> Anthropic Claude Sonnet 4<br /><code>claude-sonnet-4-20250514</code> via <code>@anthropic-ai/sdk</code></div>
+        </div>
+        <div class="mode-step">
+          <div class="mode-step-num warm">2</div>
+          <div class="mode-step-text"><strong>Protocole :</strong> HTTPS &rarr; <code>api.anthropic.com</code><br />Header: <code>x-api-key: ANTHROPIC_API_KEY</code></div>
+        </div>
+        <div class="mode-step">
+          <div class="mode-step-num warm">3</div>
+          <div class="mode-step-text"><strong>Appel SDK :</strong>
+<div class="msg-box" style="margin-top: 4px;"><span class="kw">anthropic.messages.create</span>({
+  model: <span class="val">"claude-sonnet-4-20250514"</span>,
+  max_tokens: <span class="val">4096</span>,
+  system: <span class="val">systemPrompt</span>,  <span class="cmt">// contexte projet + schema</span>
+  messages: [{ role: <span class="val">"user"</span>, content: <span class="val">prompt</span> }]
+})</div>
+          </div>
+        </div>
+        <div class="mode-step">
+          <div class="mode-step-num warm">4</div>
+          <div class="mode-step-text"><strong>Output :</strong> max 4096 tokens<br />JSON de haute qualite, calculs precis, insights riches</div>
+        </div>
+        <div class="mode-step">
+          <div class="mode-step-num warm">5</div>
+          <div class="mode-step-text"><strong>Fallback 1 :</strong> Si Anthropic echoue &rarr; <code>Mistral Cloud</code><br /><code>ministral-3b-latest</code> via <code>@mistralai/mistralai</code></div>
+        </div>
+        <div class="mode-step">
+          <div class="mode-step-num warm">6</div>
+          <div class="mode-step-text"><strong>Fallback 2 :</strong> Si Mistral echoue &rarr; Ollama local<br />(meme chemin que le mode Offline)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Offline column -->
+    <div class="mode-col">
+      <div class="mode-header offline">&#128274; Offline &mdash; sans internet</div>
+      <div class="mode-body">
+        <div class="mode-step">
+          <div class="mode-step-num dark">1</div>
+          <div class="mode-step-text"><strong>Provider :</strong> Ollama (100% local)<br /><code>ministral:3b</code> sur <code>localhost:11434</code></div>
+        </div>
+        <div class="mode-step">
+          <div class="mode-step-num dark">2</div>
+          <div class="mode-step-text"><strong>Protocole :</strong> HTTP local &rarr; <code>localhost:11434/api/chat</code><br />Aucune cle API, aucun trafic sortant</div>
+        </div>
+        <div class="mode-step">
+          <div class="mode-step-num dark">3</div>
+          <div class="mode-step-text"><strong>Appel HTTP :</strong>
+<div class="msg-box" style="margin-top: 4px;"><span class="kw">fetch</span>(<span class="val">"http://localhost:11434/api/chat"</span>, {
+  method: <span class="val">"POST"</span>,
+  body: JSON.stringify({
+    model: <span class="val">"ministral:3b"</span>,
+    messages: [{ role: <span class="val">"system"</span>, content: ... },
+               { role: <span class="val">"user"</span>, content: ... }],
+    stream: <span class="val">false</span>,
+    options: { num_predict: <span class="val">2000</span>,
+               temperature: <span class="val">0.2</span>,
+               repeat_penalty: <span class="val">1.3</span> }
+  })
+})</div>
+          </div>
+        </div>
+        <div class="mode-step">
+          <div class="mode-step-num dark">4</div>
+          <div class="mode-step-text"><strong>Output :</strong> max 2000 tokens (limite pour modele 3B)<br />JSON fonctionnel mais moins precis, insights plus courts</div>
+        </div>
+        <div class="mode-step">
+          <div class="mode-step-num dark">5</div>
+          <div class="mode-step-text"><strong>Post-traitement :</strong> <code>truncateRepetitions()</code><br />Detection de boucles de repetition (40+ chars &times; 3+) et troncature automatique</div>
+        </div>
+        <div class="mode-step">
+          <div class="mode-step-num dark">6</div>
+          <div class="mode-step-text"><strong>Pas de fallback :</strong> Si Ollama est down &rarr; erreur 500<br />Prerequis : <code>ollama pull ministral:3b</code></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <h3>Point cle : le LLM ne genere pas de SQL</h3>
+  <p>Le pipeline ne contient <strong>aucune phase text-to-SQL</strong>. Le LLM n'a pas acces a la base de donnees. Le serveur Node.js execute lui-meme les requetes SQL via <code>better-sqlite3</code> (appels synchrones, in-process), construit un resume textuel des donnees, et l'injecte dans le prompt. Le LLM repond uniquement avec un JSON structure (rapport, KPIs, sections).</p>
+  <p>Les donnees qui apparaissent dans les charts sont <strong>calculees par le LLM a partir des echantillons et statistiques fournis dans le prompt</strong>. Pour les rapports complexes, le serveur envoie jusqu'a 20 lignes d'echantillon + les stats completes, ce qui permet au LLM de produire des agregations realistes.</p>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 3 — STACK
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>3. Stack technique</h2>
+
+  <h3>Frontend</h3>
+  <div class="tech-grid">
+    <div class="tech-item"><span class="tech-name">React 19.2</span><span class="tech-role">Framework UI, Context API</span></div>
+    <div class="tech-item"><span class="tech-name">React Router 7</span><span class="tech-role">Routing /workspace-slug/*</span></div>
+    <div class="tech-item"><span class="tech-name">Recharts 3.8</span><span class="tech-role">Bar, Pie, Area, Composed, Table</span></div>
+    <div class="tech-item"><span class="tech-name">Vite 8</span><span class="tech-role">Bundler, HMR, port 5183</span></div>
+    <div class="tech-item"><span class="tech-name">jsPDF + html2canvas</span><span class="tech-role">Generation PDF client-side</span></div>
+    <div class="tech-item"><span class="tech-name">Lucide Icons</span><span class="tech-role">Icones SVG</span></div>
+  </div>
+  <h3>Backend</h3>
+  <div class="tech-grid">
+    <div class="tech-item"><span class="tech-name">Express 4.21</span><span class="tech-role">API REST, middleware workspace</span></div>
+    <div class="tech-item"><span class="tech-name">better-sqlite3</span><span class="tech-role">SQLite en WAL mode, sync</span></div>
+    <div class="tech-item"><span class="tech-name">Multer 1.4</span><span class="tech-role">Upload multi-fichiers</span></div>
+    <div class="tech-item"><span class="tech-name">XLSX 0.18</span><span class="tech-role">Parsing Excel</span></div>
+    <div class="tech-item"><span class="tech-name">csv-parse 5.5</span><span class="tech-role">Parsing CSV sync</span></div>
+  </div>
+  <h3>IA (3 tiers)</h3>
+  <div class="tech-grid">
+    <div class="tech-item"><span class="tech-name">Claude Sonnet 4</span><span class="tech-role">Premium &mdash; @anthropic-ai/sdk, 4K tokens</span></div>
+    <div class="tech-item"><span class="tech-name">Mistral 3B</span><span class="tech-role">Fallback cloud &mdash; @mistralai/mistralai</span></div>
+    <div class="tech-item"><span class="tech-name">Ollama</span><span class="tech-role">Offline &mdash; ministral:3b, localhost:11434</span></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       SECTION 4 — DB SCHEMA
+       ═══════════════════════════════════════════════════════════════ -->
+  <h2>4. Schema de base de donnees</h2>
+  <p>SQLite en mode WAL avec foreign keys. Chaque table est scopee par <code>workspace_id</code>.</p>
+  <div class="schema-block"><span class="comment">-- Espaces de travail isoles</span>
+<span class="kw">CREATE TABLE</span> <span class="type">workspaces</span> (
+  id <span class="type">TEXT PRIMARY KEY</span>, slug <span class="type">TEXT UNIQUE NOT NULL</span>, name <span class="type">TEXT NOT NULL</span>, industry <span class="type">TEXT</span>
+);
+
+<span class="comment">-- Fichiers importes (donnees brutes)</span>
+<span class="kw">CREATE TABLE</span> <span class="type">uploaded_files</span> (
+  id <span class="type">TEXT PRIMARY KEY</span>, name <span class="type">TEXT</span>, type <span class="type">TEXT</span>, <span class="comment">-- "xlsx" | "csv" | "json"</span>
+  columns <span class="type">TEXT</span>, <span class="comment">-- JSON array</span>
+  row_count <span class="type">INTEGER</span>, workspace_id <span class="type">TEXT REFERENCES workspaces(id)</span>
+);
+
+<span class="comment">-- Lignes brutes (JSON par ligne)</span>
+<span class="kw">CREATE TABLE</span> <span class="type">data_rows</span> (
+  id <span class="type">INTEGER PRIMARY KEY AUTOINCREMENT</span>, file_id <span class="type">TEXT REFERENCES uploaded_files(id)</span>,
+  sheet_name <span class="type">TEXT</span>, row_data <span class="type">TEXT</span> <span class="comment">-- JSON object</span>
+);
+
+<span class="comment">-- Donnees nettoyees et typees</span>
+<span class="kw">CREATE TABLE</span> <span class="type">clean_data</span> (
+  id <span class="type">INTEGER PRIMARY KEY AUTOINCREMENT</span>, table_name <span class="type">TEXT</span>,
+  columns <span class="type">TEXT</span>, <span class="comment">-- JSON: [{name, type, nullable}]</span>
+  row_data <span class="type">TEXT</span>, <span class="comment">-- JSON: {col1: val1, ...} types convertis</span>
+  workspace_id <span class="type">TEXT REFERENCES workspaces(id)</span>
+);
+
+<span class="comment">-- Rapports generes par IA</span>
+<span class="kw">CREATE TABLE</span> <span class="type">reports</span> (
+  id <span class="type">TEXT PRIMARY KEY</span>, title <span class="type">TEXT</span>, subtitle <span class="type">TEXT</span>, objective <span class="type">TEXT</span>,
+  color <span class="type">TEXT</span>, icon <span class="type">TEXT DEFAULT 'BarChart3'</span>,
+  kpis <span class="type">TEXT</span>, <span class="comment">-- JSON: [{label, value, trend, bad}]</span>
+  sections <span class="type">TEXT</span>, <span class="comment">-- JSON: [{title, type, insight, data, config}]</span>
+  shared <span class="type">INTEGER DEFAULT 0</span>, starred <span class="type">INTEGER DEFAULT 0</span>,
+  trashed <span class="type">INTEGER DEFAULT 0</span>, source <span class="type">TEXT DEFAULT 'ai'</span>,
+  workspace_id <span class="type">TEXT REFERENCES workspaces(id)</span>
+);
+
+<span class="comment">-- Contexte projet + Sessions chat + Logs</span>
+<span class="kw">CREATE TABLE</span> <span class="type">project_context</span> (...);
+<span class="kw">CREATE TABLE</span> <span class="type">chat_sessions</span> (... messages <span class="type">TEXT DEFAULT '[]'</span> <span class="comment">-- JSON multi-tour</span>);
+<span class="kw">CREATE TABLE</span> <span class="type">usage_logs</span> (... action <span class="type">TEXT</span>, query <span class="type">TEXT</span>, themes <span class="type">TEXT</span>);</div>
+
+
+  <!-- Footer -->
+  <div style="margin-top: 64px; padding-top: 16px; border-top: 2px solid var(--accent); display: flex; justify-content: space-between; align-items: center;">
+    <div class="logo"><span class="logo-lite">lite</span><span class="logo-change">Change</span></div>
+    <span class="data-label">Documentation produit &mdash; Confidentiel</span>
+  </div>
+
+</div>
+</body>
+</html>
