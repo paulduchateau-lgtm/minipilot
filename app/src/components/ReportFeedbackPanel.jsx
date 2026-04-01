@@ -2,37 +2,24 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 
 // SessionStorage persistence note:
-// - Feedback is persisted per-report during the session.
+// - Global feedback is persisted per-report during the session.
 // - On successful iterate, the parent (FullReport) clears sessionStorage via
-//   sessionStorage.removeItem("feedback-global-" + report.id) and
-//   sessionStorage.removeItem("feedback-sections-" + report.id).
+//   sessionStorage.removeItem("feedback-global-" + report.id).
+// - Section feedbacks are managed inline in each section (RenderSection)
+//   and passed here as the `sectionFeedbacks` prop.
 
-export default function ReportFeedbackPanel({ report, onSubmit, loading, error }) {
+export default function ReportFeedbackPanel({ report, onSubmit, loading, error, sectionFeedbacks = {} }) {
   const storageKeyGlobal = "feedback-global-" + report.id;
-  const storageKeySections = "feedback-sections-" + report.id;
 
   const [globalFeedback, setGlobalFeedback] = useState(
     () => sessionStorage.getItem(storageKeyGlobal) || ""
   );
-  const [sectionFeedbacks, setSectionFeedbacks] = useState(
-    () => JSON.parse(sessionStorage.getItem(storageKeySections) || "{}")
-  );
 
   const [focusedField, setFocusedField] = useState(null);
-
-  const sections = typeof report.sections === "string"
-    ? JSON.parse(report.sections)
-    : (report.sections || []);
 
   const handleGlobalChange = (val) => {
     setGlobalFeedback(val);
     sessionStorage.setItem(storageKeyGlobal, val);
-  };
-
-  const handleSectionChange = (index, val) => {
-    const updated = { ...sectionFeedbacks, [index]: val };
-    setSectionFeedbacks(updated);
-    sessionStorage.setItem(storageKeySections, JSON.stringify(updated));
   };
 
   const hasContent = () => {
@@ -105,29 +92,17 @@ export default function ReportFeedbackPanel({ report, onSubmit, loading, error }
         style={textareaStyle("global", 88)}
       />
 
-      {/* Per-section feedback */}
-      {sections.map((section, i) => (
-        <div key={i}>
-          <label
-            className="data-label"
-            htmlFor={`feedback-section-${i}`}
-            style={{ display: "block", marginTop: 16, marginBottom: 4, textTransform: "uppercase" }}
-          >
-            {section.title}
-          </label>
-          <textarea
-            id={`feedback-section-${i}`}
-            value={sectionFeedbacks[i] || ""}
-            onChange={e => handleSectionChange(i, e.target.value)}
-            onFocus={() => setFocusedField(`section-${i}`)}
-            onBlur={() => setFocusedField(null)}
-            placeholder="Feedback spécifique à cette section (optionnel)"
-            aria-label={`Feedback pour ${section.title}`}
-            disabled={loading}
-            style={textareaStyle(`section-${i}`, 56)}
-          />
-        </div>
-      ))}
+      {/* Section feedback summary (read-only count) */}
+      {Object.values(sectionFeedbacks).some(v => v.trim().length > 0) && (
+        <p style={{
+          marginTop: 10,
+          fontSize: 12,
+          fontFamily: "var(--font-body)",
+          color: "var(--mp-text-muted)",
+        }}>
+          + {Object.values(sectionFeedbacks).filter(v => v.trim().length > 0).length} feedback(s) par section
+        </p>
+      )}
 
       {/* CTA */}
       <button

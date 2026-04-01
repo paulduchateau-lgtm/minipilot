@@ -38,7 +38,6 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
       } else {
         // Clear feedback state and sessionStorage after successful iterate
         sessionStorage.removeItem("feedback-global-" + report.id);
-        sessionStorage.removeItem("feedback-sections-" + report.id);
         setSectionFeedbacks({});
         setFeedbackOpen(false);
         setVersionPanelOpen(false);
@@ -266,6 +265,7 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
                 onSubmit={handleIterate}
                 loading={iterateLoading}
                 error={iterateError}
+                sectionFeedbacks={sectionFeedbacks}
               />
             )}
           </div>
