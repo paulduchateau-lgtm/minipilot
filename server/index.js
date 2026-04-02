@@ -3794,9 +3794,9 @@ Réponds UNIQUEMENT avec un JSON valide (sans markdown, sans \`\`\`) représenta
   }
 });
 
-// ─── 404 handler ──────────────────────────────────────────────────────────────
+// ─── API 404 handler (only for /api/* routes) ────────────────────────────────
 
-app.use((req, res) => {
+app.all("/api/*", (req, res) => {
   res.status(404).json({ error: `Route introuvable : ${req.method} ${req.path}` });
 });
 

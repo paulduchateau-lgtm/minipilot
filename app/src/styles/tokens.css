@@ -1,134 +1,131 @@
-/* ═══════════════════════════════════════════════
-   LiteChange Design Tokens v2.0 — Minipilot
-   Aligned with design-system/tokens/litechange-tokens.css
-   ═══════════════════════════════════════════════ */
+/**
+ * Pilot (AG001) — Design Tokens
+ * REF-DS/BRIDGE/PILOT v1.0
+ *
+ * Bridge: --lc-* et --mp-* rebanchés sur @liteops/ds tokens.
+ * Les composants continuent d'utiliser --mp-* sans modification.
+ * @liteops/ds/tokens/all.css est chargé AVANT ce fichier (via main.jsx).
+ *
+ * Règles DS appliquées :
+ * R02 — DM Sans max 500
+ * R09 — Accent T2 = Green (#A5D900) — même couleur sur tous les produits
+ * R10 — Aucun bleu signal, aucun --lc-*
+ */
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300;1,9..40,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,300;1,8..60,400;1,8..60,500&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+/* ── Google Fonts : DM Sans + JetBrains Mono uniquement ─────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  /* ── Raw Palette (from litechange-tokens.css v2.0) ── */
+  /* ── Fonts ───────────────────────────────────────────────────────────────
+   * Source Serif 4 → supprimé.  IBM Plex Mono → JetBrains Mono.
+   * --font-display conservé comme alias pour rétrocompatibilité.
+   */
+  --font-display: var(--font-sans);
+  --font-body:    var(--font-sans);
+  --font-data:    var(--font-mono);
 
-  /* Olive — dark neutral (desaturated warm grey) */
-  --lc-olive-950: #101110;
-  --lc-olive-900: #1C1D1A;
-  --lc-olive-800: #2A2B27;
-  --lc-olive-700: #3A3B37;
-  --lc-olive-600: #4E5444;
-  --lc-olive-500: #6B7260;
+  /* ── Tokens LiteChange legacy → @liteops/ds ─────────────────────────────
+   * Ces redéfinitions permettent à tout code utilisant --lc-* de
+   * fonctionner avec les valeurs correctes LiteOps DS.
+   */
 
-  /* Paper — light neutral (cool beige, NOT warm cream) */
-  --lc-paper-700: #8C8A82;
-  --lc-paper-600: #A8A69E;
-  --lc-paper-500: #BDB9B0;
-  --lc-paper-400: #D0CCC4;
-  --lc-paper-300: #E0DDD6;
-  --lc-paper-200: #ECEAE4;
-  --lc-paper-100: #F5F4F0;
-  --lc-paper-50:  #FAFAF8;
+  /* Surfaces */
+  --lc-olive-950: var(--color-ink);
+  --lc-olive-900: var(--color-dark);
+  --lc-olive-800: #363530;
+  --lc-olive-700: #3D3A35;
+  --lc-olive-600: var(--color-steel);
+  --lc-olive-500: var(--color-sage);
 
-  /* Lite Green — brand accent (signal only, never fill) */
+  /* Paper / backgrounds clairs */
+  --lc-paper-700: var(--color-steel);
+  --lc-paper-600: var(--color-chrome);
+  --lc-paper-500: var(--color-chrome-l);
+  --lc-paper-400: var(--color-rule);
+  --lc-paper-300: var(--color-fog);
+  --lc-paper-200: var(--color-warm);
+  --lc-paper-100: var(--color-warm);
+  --lc-paper-50:  var(--color-paper);
+
+  /* Vert signal (corrigé #B0D838 → #A5D900) */
   --lc-lite-800: #527A10;
   --lc-lite-700: #6B8A1A;
   --lc-lite-600: #84A422;
-  --lc-lite-400: #B0D838;
-  --lc-lite-300: #C8FF3C;
+  --lc-lite-400: var(--color-green);
+  --lc-lite-300: var(--color-green);
 
-  /* Signal Blue */
-  --lc-signal-500: #4A90B8;
-  --lc-signal-300: #7AB4D4;
+  /* Bleu LiteChange → supprimé → chrome neutre */
+  --lc-signal-500: var(--color-steel);
+  --lc-signal-300: var(--color-chrome);
 
-  /* Warm Orange */
-  --lc-warm-500:  #C45A32;
-  --lc-warm-300:  #E08A68;
-
-  /* Status */
+  /* Chaleur/statuts */
+  --lc-warm-500:    var(--color-copper);
+  --lc-warm-300:    var(--color-copper);
   --lc-success-500: #3A8A4A;
   --lc-success-300: #68B474;
-  --lc-warning-500: #D4A03A;
+  --lc-warning-500: var(--color-amber);
   --lc-warning-300: #E8C46A;
-
-  /* ── Typography ── */
-  --font-display: 'Source Serif 4', Georgia, serif;
-  --font-body:    'DM Sans', 'Helvetica Neue', sans-serif;
-  --font-data:    'IBM Plex Mono', 'Menlo', monospace;
-
-  /* ── Spacing (4px grid) ── */
-  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;
-  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;  --sp-10: 40px;
-  --sp-12: 48px; --sp-16: 64px; --sp-20: 80px;
-
-  /* ── Radius ── */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
-  --radius-pill: 9999px;
 }
 
-
-/* ───────────────────────────────────────────────
-   DARK THEME (default — dashboards, monitoring)
-   Accent: lite-400 (#B0D838), NOT lite-300 (neon = hover only)
-   ─────────────────────────────────────────────── */
-
+/* ── Thème sombre — dashboards Pilot (dark par défaut) ───────────────────── */
 :root,
 [data-theme="dark"] {
-  --mp-bg:             var(--lc-olive-900);
-  --mp-bg-elevated:    var(--lc-olive-800);
-  --mp-bg-card:        var(--lc-olive-800);
-  --mp-bg-input:       var(--lc-olive-950);
-  --mp-border:         rgba(232, 230, 225, 0.12);
-  --mp-border-subtle:  rgba(232, 230, 225, 0.07);
-  --mp-text:           #E8E6E1;
-  --mp-text-secondary: #C0BEB8;
-  --mp-text-muted:     #8A8880;
-  --mp-accent:         var(--lc-lite-400);
-  --mp-accent-dim:     rgba(176, 216, 56, 0.05);
-  --mp-accent-hover:   var(--lc-lite-300);
-  --mp-accent-text:    var(--lc-lite-400);
-  --mp-accent-on:      var(--lc-olive-900);
-  --mp-nav-hover:      rgba(255, 255, 255, 0.04);
-  --mp-signal:         var(--lc-signal-300);
-  --mp-warm:           var(--lc-warm-300);
-  --mp-success:        var(--lc-success-300);
-  --mp-warning:        var(--lc-warning-300);
-  --mp-error:          var(--lc-warm-300);
+  --mp-bg:             var(--color-dark);
+  --mp-bg-elevated:    #363530;
+  --mp-bg-card:        #363530;
+  --mp-bg-input:       var(--color-ink);
+  --mp-border:         rgba(240, 238, 235, 0.10);
+  --mp-border-subtle:  rgba(240, 238, 235, 0.06);
+  --mp-text:           var(--color-paper);
+  --mp-text-secondary: var(--color-chrome);
+  --mp-text-muted:     var(--color-sage);
+
+  /* Accent T2 = Green */
+  --mp-accent:         var(--color-green);
+  --mp-accent-dim:     rgba(165, 217, 0, 0.08);
+  --mp-accent-hover:   #96C800;
+  --mp-accent-text:    var(--color-green);
+  --mp-accent-on:      var(--color-dark);
+
+  --mp-nav-hover:      rgba(240, 238, 235, 0.04);
+  /* Bleu supprimé → chrome neutre */
+  --mp-signal:         var(--color-chrome);
+  --mp-warm:           var(--color-copper);
+  --mp-success:        #68B474;
+  --mp-warning:        #E8C46A;
+  --mp-error:          var(--color-alert);
   --mp-shadow:         0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-
-/* ───────────────────────────────────────────────
-   LIGHT THEME (editorial, reports)
-   Accent: lite-700 (#6B8A1A)
-   Paper: cool beige (#F5F4F0 base)
-   ─────────────────────────────────────────────── */
-
+/* ── Thème clair — rapports et exports ───────────────────────────────────── */
 [data-theme="light"] {
-  --mp-bg:             var(--lc-paper-100);
-  --mp-bg-elevated:    var(--lc-paper-200);
-  --mp-bg-card:        var(--lc-paper-50);
-  --mp-bg-input:       var(--lc-paper-50);
-  --mp-border:         var(--lc-paper-300);
-  --mp-border-subtle:  var(--lc-paper-200);
-  --mp-text:           var(--lc-olive-900);
-  --mp-text-secondary: var(--lc-olive-600);
-  --mp-text-muted:     var(--lc-paper-700);
-  --mp-accent:         var(--lc-lite-700);
-  --mp-accent-dim:     rgba(107, 138, 26, 0.08);
-  --mp-accent-hover:   var(--lc-lite-800);
-  --mp-accent-text:    var(--lc-lite-700);
-  --mp-accent-on:      #FFFFFF;
-  --mp-nav-hover:      var(--lc-paper-200);
-  --mp-signal:         var(--lc-signal-500);
-  --mp-warm:           var(--lc-warm-500);
-  --mp-success:        var(--lc-success-500);
-  --mp-warning:        var(--lc-warning-500);
-  --mp-error:          var(--lc-warm-500);
-  --mp-shadow:         0 4px 12px rgba(28, 29, 26, 0.08);
+  --mp-bg:             var(--color-warm);
+  --mp-bg-elevated:    var(--color-paper);
+  --mp-bg-card:        var(--color-paper);
+  --mp-bg-input:       var(--color-paper);
+  --mp-border:         var(--color-rule);
+  --mp-border-subtle:  var(--color-fog);
+  --mp-text:           var(--color-ink);
+  --mp-text-secondary: var(--color-moss);
+  --mp-text-muted:     var(--color-sage);
+
+  /* Accent T2 = Green */
+  --mp-accent:         var(--color-green);
+  --mp-accent-dim:     rgba(165, 217, 0, 0.08);
+  --mp-accent-hover:   #96C800;
+  --mp-accent-text:    var(--color-green);
+  --mp-accent-on:      var(--color-dark);
+
+  --mp-nav-hover:      var(--color-fog);
+  --mp-signal:         var(--color-steel);
+  --mp-warm:           var(--color-copper);
+  --mp-success:        #3A8A4A;
+  --mp-warning:        var(--color-amber);
+  --mp-error:          var(--color-alert);
+  --mp-shadow:         0 4px 12px rgba(28, 28, 26, 0.08);
 }
 
-
-/* ── Global Reset ── */
+/* ── Reset ────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -139,32 +136,35 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Scrollbar (dark only) ── */
-[data-theme="dark"] ::-webkit-scrollbar { width: 6px; height: 6px; }
-[data-theme="dark"] ::-webkit-scrollbar-track { background: var(--lc-olive-800); }
-[data-theme="dark"] ::-webkit-scrollbar-thumb { background: var(--lc-olive-600); border-radius: 3px; }
-
-/* ── Data Typography ── */
+/* ── Data Typography ──────────────────────────────────────────────────────── */
 .data-label {
-  font-family: var(--font-data);
+  font-family: var(--font-mono);
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   color: var(--mp-text-muted);
 }
 
 .data-value {
-  font-family: var(--font-data);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Focus ── */
+/* ── Focus ────────────────────────────────────────────────────────────────── */
 :focus-visible {
   outline: 2px solid var(--mp-accent);
   outline-offset: 2px;
 }
 
-/* ── Animations ── */
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-chrome-d);
+  border-radius: 3px;
+}
+
+/* ── Animations ────────────────────────────────────────────────────────────── */
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @keyframes fade-up {
@@ -177,9 +177,7 @@ body {
   50%      { opacity: 1;   transform: scale(1.08); }
 }
 
-.animate-fade-up {
-  animation: fade-up 0.5s ease-out both;
-}
+.animate-fade-up { animation: fade-up 0.5s ease-out both; }
 
 .status-dot {
   width: 8px; height: 8px;

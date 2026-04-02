@@ -142,14 +142,22 @@ function computeGroupBy(rows, groupByCol, valueColumns) {
         const col = typeof vc === "string" ? vc : vc.column;
         const agg = typeof vc === "string" ? "avg" : (vc.aggregate || "avg");
 
-        const nums = groupRows
-          .map(r => r[col])
-          .filter(v => v !== null && v !== undefined && v !== "")
-          .map(Number)
-          .filter(n => !isNaN(n));
+        // "first" aggregate: return the first non-empty value (useful for text columns)
+        if (agg === "first") {
+          const first = groupRows.find(r => r[col] !== null && r[col] !== undefined && r[col] !== "");
+          result[col] = first ? first[col] : "";
+          continue;
+        }
 
-        if (nums.length === 0) {
-          result[col] = 0;
+        const rawValues = groupRows
+          .map(r => r[col])
+          .filter(v => v !== null && v !== undefined && v !== "");
+
+        const nums = rawValues.map(Number).filter(n => !isNaN(n));
+
+        // If most values are non-numeric, treat as text → return the first value
+        if (nums.length === 0 || (nums.length < rawValues.length * 0.5)) {
+          result[col] = rawValues.length > 0 ? rawValues[0] : "";
           continue;
         }
 
