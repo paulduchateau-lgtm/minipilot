@@ -1,16 +1,27 @@
-# React + Vite
+# Pilot — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Agent :** AG001
+**Tier :** T2 — Product
+**Stack :** React + Vite
 
-Currently, two official plugins are available:
+Interface chatbot pour l'analyse de donnees et la generation de rapports.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Lancer en local
 
-## React Compiler
+```bash
+npm install
+npm run dev
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Structure
 
-## Expanding the ESLint configuration
+```
+src/components/   Composants React
+src/styles/       CSS + tokens design
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Design
+
+Tier T2 : fond dark `#1E1D1B`, accent Signal Green `#A5D900`, border-radius 6px.
+Couleur agent : Amber `#C4872E`.
+Voir `CLAUDE.md` pour les regles completes.
