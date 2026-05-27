@@ -30,12 +30,13 @@ export default function LoginPage() {
   return (
     <div style={{
       minHeight: "100vh",
-      background: "var(--color-dark, #1E1D1B)",
+      background: "var(--mp-bg)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       fontFamily: "var(--font-sans, 'DM Sans', sans-serif)",
-      color: "var(--color-paper, #F0EEEB)",
+      color: "var(--mp-text)",
+      transition: "background 0.3s, color 0.3s",
     }}>
       <div style={{
         width: "100%",
@@ -54,7 +55,7 @@ export default function LoginPage() {
               fontSize: 11,
               letterSpacing: "0.14em",
               textTransform: "uppercase",
-              color: "var(--color-green, #A5D900)",
+              color: "var(--mp-accent)",
             }}>PILOT</span>
           </div>
           <h1 style={{
@@ -64,7 +65,7 @@ export default function LoginPage() {
           }}>
             {mode === "login" ? "Connexion" : "Créer un compte"}
           </h1>
-          <p style={{ fontSize: 13, color: "var(--color-fog, #A8A49C)" }}>
+          <p style={{ fontSize: 13, color: "var(--mp-text-muted)" }}>
             {mode === "login"
               ? "Connectez-vous pour accéder à vos espaces de travail"
               : "Créez votre compte pour commencer"}
@@ -117,7 +118,7 @@ export default function LoginPage() {
               borderRadius: 6,
               padding: "10px 14px",
               fontSize: 13,
-              color: "#E8836A",
+              color: "var(--mp-error)",
               marginBottom: 16,
             }}>
               {error}
@@ -130,8 +131,8 @@ export default function LoginPage() {
             style={{
               width: "100%",
               padding: "12px 20px",
-              background: "var(--color-green, #A5D900)",
-              color: "var(--color-dark, #1E1D1B)",
+              background: "var(--mp-accent)",
+              color: "var(--mp-accent-on)",
               border: "none",
               borderRadius: 6,
               fontSize: 14,
@@ -157,7 +158,7 @@ export default function LoginPage() {
           textAlign: "center",
           marginTop: 24,
           fontSize: 13,
-          color: "var(--color-fog, #A8A49C)",
+          color: "var(--mp-text-muted)",
         }}>
           {mode === "login" ? (
             <>
@@ -191,7 +192,7 @@ const labelStyle = {
   fontSize: 12,
   fontWeight: 500,
   marginBottom: 6,
-  color: "var(--color-fog, #A8A49C)",
+  color: "var(--mp-text-muted)",
   fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
   textTransform: "uppercase",
   letterSpacing: "0.12em",
@@ -200,12 +201,12 @@ const labelStyle = {
 const inputStyle = {
   width: "100%",
   padding: "10px 14px",
-  background: "var(--color-dark, #1E1D1B)",
-  border: "1px solid var(--color-rule, #3A3935)",
+  background: "var(--mp-bg-input)",
+  border: "1px solid var(--mp-border)",
   borderRadius: 6,
   fontSize: 14,
   fontFamily: "inherit",
-  color: "var(--color-paper, #F0EEEB)",
+  color: "var(--mp-text)",
   outline: "none",
   boxSizing: "border-box",
 };
@@ -213,7 +214,7 @@ const inputStyle = {
 const linkButtonStyle = {
   background: "none",
   border: "none",
-  color: "var(--color-green, #A5D900)",
+  color: "var(--mp-accent)",
   cursor: "pointer",
   fontSize: 13,
   fontFamily: "inherit",

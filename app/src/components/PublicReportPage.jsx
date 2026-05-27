@@ -2,11 +2,12 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { getPublicReport, postPublicComment } from "../lib/api";
 import RenderSection from "./RenderSection";
-import { ThemeProvider } from "../data/theme";
+import { useTheme } from "../data/theme";
 import {
   BarChart3, Activity, TrendingUp, Heart, AlertTriangle, Users,
   FileText, Calendar, Clock, Eye, Stethoscope, Building2,
   MessageSquare, Send, Loader2, ArrowUpRight, ArrowDownRight,
+  Download, Sun, Moon,
 } from "lucide-react";
 
 const ICON_MAP = {
@@ -20,9 +21,11 @@ function getIcon(iconName) {
 
 export default function PublicReportPage() {
   const { token } = useParams();
+  const { theme, toggle: toggleTheme } = useTheme();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const [commentSection, setCommentSection] = useState(null);
   const [commentAuthor, setCommentAuthor] = useState("");
@@ -69,12 +72,25 @@ export default function PublicReportPage() {
     setCommentSending(false);
   };
 
+  const handleExportPdf = async () => {
+    if (pdfLoading || !data?.report) return;
+    setPdfLoading(true);
+    try {
+      const { generateTheForkPdf } = await import("../lib/generateTheForkPdf.js");
+      await generateTheForkPdf(data.report, {});
+    } catch (err) {
+      console.error("[PDF] generation failed:", err);
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={pageStyle}>
         <div style={{ textAlign: "center", padding: 80 }}>
-          <Loader2 size={24} color="var(--color-green, #A5D900)" style={{ animation: "spin 1s linear infinite" }} />
-          <p style={{ color: "var(--color-fog, #A8A49C)", fontSize: 14, marginTop: 12 }}>Chargement du rapport...</p>
+          <Loader2 size={24} color="var(--mp-accent)" style={{ animation: "spin 1s linear infinite" }} />
+          <p style={{ color: "var(--mp-text-muted)", fontSize: 14, marginTop: 12 }}>Chargement du rapport...</p>
         </div>
       </div>
     );
@@ -84,9 +100,9 @@ export default function PublicReportPage() {
     return (
       <div style={pageStyle}>
         <div style={{ textAlign: "center", padding: 80 }}>
-          <FileText size={32} color="var(--color-fog, #A8A49C)" />
+          <FileText size={32} color="var(--mp-text-muted)" />
           <p style={{ fontSize: 16, marginTop: 12, fontWeight: 400 }}>{error}</p>
-          <p style={{ fontSize: 13, color: "var(--color-fog, #A8A49C)", marginTop: 4 }}>
+          <p style={{ fontSize: 13, color: "var(--mp-text-muted)", marginTop: 4 }}>
             Ce lien est peut-être invalide ou le rapport a été dépublié.
           </p>
         </div>
@@ -113,27 +129,55 @@ export default function PublicReportPage() {
 
   return (
     <div style={pageStyle}>
-      <div style={{ maxWidth: comments.length > 0 ? 1200 : 960, margin: "0 auto", padding: "40px 24px 80px", transition: "max-width 200ms ease" }}>
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "40px 24px 80px" }}>
         {/* Branding bar */}
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
           marginBottom: 32, paddingBottom: 16,
-          borderBottom: "1px solid var(--color-rule, #3A3935)",
+          borderBottom: "1px solid var(--mp-border)",
         }}>
           <span style={{
             fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
             fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase",
-            color: "var(--color-green, #A5D900)",
+            color: "var(--mp-accent)",
           }}>PILOT · RAPPORT PUBLIÉ</span>
-          {publishedAt && (
-            <span style={{
-              fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-              fontSize: 10, color: "var(--color-fog, #A8A49C)",
-              letterSpacing: "0.12em", textTransform: "uppercase",
-            }}>
-              {new Date(publishedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
-            </span>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {publishedAt && (
+              <span style={{
+                fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                fontSize: 10, color: "var(--mp-text-muted)",
+                letterSpacing: "0.12em", textTransform: "uppercase",
+              }}>
+                {new Date(publishedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+              </span>
+            )}
+            <button
+              onClick={handleExportPdf}
+              disabled={pdfLoading}
+              style={{
+                background: "var(--mp-bg-card)", border: "1px solid var(--mp-border)",
+                borderRadius: 6, padding: "6px 12px", cursor: pdfLoading ? "wait" : "pointer",
+                display: "flex", alignItems: "center", gap: 5,
+                color: "var(--mp-text-muted)", fontSize: 11, fontFamily: "inherit",
+                opacity: pdfLoading ? 0.6 : 1,
+              }}
+            >
+              {pdfLoading ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : <Download size={12} />}
+              PDF
+            </button>
+            <button
+              onClick={toggleTheme}
+              style={{
+                background: "var(--mp-bg-card)", border: "1px solid var(--mp-border)",
+                borderRadius: 6, padding: "6px 10px", cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 5,
+                color: "var(--mp-text-muted)", fontSize: 11, fontFamily: "inherit",
+              }}
+              title={theme === "dark" ? "Mode clair" : "Mode sombre"}
+            >
+              {theme === "dark" ? <Sun size={12} /> : <Moon size={12} />}
+            </button>
+          </div>
         </div>
 
         {/* Report header */}
@@ -153,10 +197,10 @@ export default function PublicReportPage() {
             }}>{report.title}</h1>
           </div>
           {report.subtitle && (
-            <p style={{ fontSize: 14, color: "var(--color-fog, #A8A49C)", margin: "4px 0 0 46px" }}>{report.subtitle}</p>
+            <p style={{ fontSize: 14, color: "var(--mp-text-muted)", margin: "4px 0 0 46px" }}>{report.subtitle}</p>
           )}
           {report.objective && (
-            <p style={{ fontSize: 13, color: "var(--color-sage, #7A7A6E)", margin: "8px 0 0 46px", fontStyle: "italic" }}>{report.objective}</p>
+            <p style={{ fontSize: 13, color: "var(--mp-text-secondary)", margin: "8px 0 0 46px", fontStyle: "italic" }}>{report.objective}</p>
           )}
         </div>
 
@@ -169,20 +213,20 @@ export default function PublicReportPage() {
           }}>
             {kpis.map((k, i) => (
               <div key={i} style={{
-                background: "var(--color-dark, #1E1D1B)",
-                border: "1px solid var(--color-rule, #3A3935)",
+                background: "var(--mp-bg-card)",
+                border: "1px solid var(--mp-border)",
                 borderRadius: 6, padding: "16px 20px",
               }}>
                 <div style={{
                   fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
                   fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em",
-                  color: "var(--color-fog, #A8A49C)", marginBottom: 8,
+                  color: "var(--mp-text-muted)", marginBottom: 8,
                 }}>{k.label}</div>
                 <div style={{ fontSize: 22, fontWeight: 500 }}>{k.value}</div>
                 {k.trend && (
                   <div style={{
                     fontSize: 11, marginTop: 4,
-                    color: k.bad ? "var(--color-alert, #C45A32)" : "var(--color-green, #A5D900)",
+                    color: k.bad ? "var(--mp-error)" : "var(--mp-success)",
                     display: "flex", alignItems: "center", gap: 3,
                   }}>
                     {k.bad ? <ArrowDownRight size={12} /> : <ArrowUpRight size={12} />}
@@ -194,36 +238,35 @@ export default function PublicReportPage() {
           </div>
         )}
 
-        {/* Sections with comment margin */}
-        {sections.map((section, i) => {
-          const sectionComments = commentsBySection[i] || [];
-          const hasMargin = sectionComments.length > 0 || commentSection === i;
-          return (
-            <div key={i} style={{
-              display: "grid",
-              gridTemplateColumns: hasMargin ? "1fr 240px" : "1fr",
-              gap: hasMargin ? 20 : 0,
-              alignItems: "start",
-              marginBottom: 32,
-            }}>
-              <div>
+        {/* Sections — 2-column grid on wide screens */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(480px, 1fr))",
+          gap: 20,
+        }}>
+          {sections.map((section, i) => {
+            const sectionComments = commentsBySection[i] || [];
+            return (
+              <div key={i} style={{
+                background: "var(--mp-bg-card)",
+                border: "1px solid var(--mp-border)",
+                borderRadius: 6,
+                padding: 20,
+              }}>
                 <RenderSection section={section} index={i} color={color} />
-                <div style={{ marginTop: 8 }}>
-                  {commentSection !== i && (
-                    <button onClick={() => setCommentSection(i)} style={commentBtnStyle}>
-                      <MessageSquare size={12} />
-                      Commenter cette section
-                    </button>
-                  )}
-                </div>
-              </div>
 
-              {hasMargin && (
-                <div style={{ paddingTop: 36 }}>
-                  {sectionComments.map(c => (
-                    <MarginComment key={c.id} comment={c} color={color} />
-                  ))}
-                  {commentSection === i && (
+                {/* Comments under this section card */}
+                {sectionComments.length > 0 && (
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--mp-border)" }}>
+                    {sectionComments.map(c => (
+                      <MarginComment key={c.id} comment={c} color={color} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Comment button / form */}
+                <div style={{ marginTop: 10 }}>
+                  {commentSection === i ? (
                     <CommentForm
                       author={commentAuthor}
                       setAuthor={setCommentAuthor}
@@ -234,28 +277,40 @@ export default function PublicReportPage() {
                       onSubmit={handleSubmitComment}
                       onCancel={() => { setCommentSection(null); setCommentBody(""); }}
                     />
+                  ) : (
+                    <button onClick={() => setCommentSection(i)} style={commentBtnStyle}>
+                      <MessageSquare size={12} />
+                      Commenter
+                      {sectionComments.length > 0 && (
+                        <span style={{
+                          background: color + "20", color,
+                          fontSize: 10, padding: "1px 5px", borderRadius: 4,
+                          fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                        }}>{sectionComments.length}</span>
+                      )}
+                    </button>
                   )}
                 </div>
-              )}
-            </div>
-          );
-        })}
+              </div>
+            );
+          })}
+        </div>
 
         {/* General comments section */}
         <div style={{
           marginTop: 48, paddingTop: 24,
-          borderTop: "1px solid var(--color-rule, #3A3935)",
+          borderTop: "1px solid var(--mp-border)",
         }}>
           <h3 style={{
             fontSize: 15, fontWeight: 500, marginBottom: 16,
             display: "flex", alignItems: "center", gap: 8,
           }}>
-            <MessageSquare size={16} color="var(--color-fog, #A8A49C)" />
+            <MessageSquare size={16} color="var(--mp-text-muted)" />
             Commentaires généraux
             {generalComments.length > 0 && (
               <span style={{
                 fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-                fontSize: 10, color: "var(--color-fog, #A8A49C)",
+                fontSize: 10, color: "var(--mp-text-muted)",
               }}>({generalComments.length})</span>
             )}
           </h3>
@@ -293,7 +348,7 @@ export default function PublicReportPage() {
 function MarginComment({ comment, color }) {
   return (
     <div style={{
-      borderLeft: `2px solid ${color || "var(--color-amber, #C4872E)"}`,
+      borderLeft: `2px solid ${color || "var(--mp-accent)"}`,
       padding: "6px 10px",
       marginBottom: 10,
       fontSize: 12,
@@ -303,19 +358,19 @@ function MarginComment({ comment, color }) {
         display: "flex", justifyContent: "space-between", alignItems: "center",
         marginBottom: 3,
       }}>
-        <span style={{ fontWeight: 500, color: color || "var(--color-amber, #C4872E)", fontSize: 11 }}>
+        <span style={{ fontWeight: 500, color: color || "var(--mp-accent)", fontSize: 11 }}>
           {comment.author_name || "Anonyme"}
         </span>
         <span style={{
           fontSize: 9, fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-          color: "var(--color-sage, #7A7A6E)", letterSpacing: "0.05em",
+          color: "var(--mp-text-muted)", letterSpacing: "0.05em",
         }}>
           {new Date(comment.created_at).toLocaleDateString("fr-FR", {
             day: "numeric", month: "short",
           })}
         </span>
       </div>
-      <p style={{ margin: 0, color: "var(--color-fog, #A8A49C)", fontSize: 12 }}>
+      <p style={{ margin: 0, color: "var(--mp-text-secondary)", fontSize: 12 }}>
         {comment.body}
       </p>
     </div>
@@ -325,8 +380,8 @@ function MarginComment({ comment, color }) {
 function CommentBubble({ comment }) {
   return (
     <div style={{
-      background: "rgba(255,255,255,0.03)",
-      border: "1px solid var(--color-rule, #3A3935)",
+      background: "var(--mp-bg-card)",
+      border: "1px solid var(--mp-border)",
       borderRadius: 6,
       padding: "10px 14px",
       marginBottom: 8,
@@ -337,14 +392,14 @@ function CommentBubble({ comment }) {
       }}>
         <span style={{
           fontSize: 12, fontWeight: 500,
-          color: "var(--color-fog, #A8A49C)",
+          color: "var(--mp-text-muted)",
         }}>
           {comment.author_name || "Anonyme"}
         </span>
         <span style={{
           fontSize: 10,
           fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-          color: "var(--color-sage, #7A7A6E)",
+          color: "var(--mp-text-muted)",
         }}>
           {new Date(comment.created_at).toLocaleDateString("fr-FR", {
             day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
@@ -359,8 +414,8 @@ function CommentBubble({ comment }) {
 function CommentForm({ author, setAuthor, body, setBody, sending, success, onSubmit, onCancel }) {
   return (
     <form onSubmit={onSubmit} style={{
-      background: "rgba(255,255,255,0.02)",
-      border: "1px solid var(--color-rule, #3A3935)",
+      background: "var(--mp-bg-elevated)",
+      border: "1px solid var(--mp-border)",
       borderRadius: 6, padding: 16,
     }}>
       <div style={{ marginBottom: 10 }}>
@@ -388,8 +443,8 @@ function CommentForm({ author, setAuthor, body, setBody, sending, success, onSub
           disabled={sending || !body.trim()}
           style={{
             padding: "8px 16px",
-            background: "var(--color-green, #A5D900)",
-            color: "var(--color-dark, #1E1D1B)",
+            background: "var(--mp-accent)",
+            color: "var(--mp-accent-on)",
             border: "none", borderRadius: 6,
             fontSize: 13, fontWeight: 500, fontFamily: "inherit",
             cursor: sending ? "wait" : "pointer",
@@ -406,15 +461,15 @@ function CommentForm({ author, setAuthor, body, setBody, sending, success, onSub
           style={{
             padding: "8px 16px",
             background: "transparent",
-            color: "var(--color-fog, #A8A49C)",
-            border: "1px solid var(--color-rule, #3A3935)", borderRadius: 6,
+            color: "var(--mp-text-muted)",
+            border: "1px solid var(--mp-border)", borderRadius: 6,
             fontSize: 13, fontFamily: "inherit", cursor: "pointer",
           }}
         >
           Annuler
         </button>
         {success && (
-          <span style={{ fontSize: 12, color: "var(--color-green, #A5D900)" }}>{success}</span>
+          <span style={{ fontSize: 12, color: "var(--mp-accent)" }}>{success}</span>
         )}
       </div>
     </form>
@@ -423,20 +478,21 @@ function CommentForm({ author, setAuthor, body, setBody, sending, success, onSub
 
 const pageStyle = {
   minHeight: "100vh",
-  background: "#1A1918",
-  color: "var(--color-paper, #F0EEEB)",
+  background: "var(--mp-bg)",
+  color: "var(--mp-text)",
   fontFamily: "var(--font-sans, 'DM Sans', sans-serif)",
+  transition: "background 0.3s, color 0.3s",
 };
 
 const inputStyle = {
   width: "100%",
   padding: "8px 12px",
-  background: "var(--color-dark, #1E1D1B)",
-  border: "1px solid var(--color-rule, #3A3935)",
+  background: "var(--mp-bg-input)",
+  border: "1px solid var(--mp-border)",
   borderRadius: 6,
   fontSize: 13,
   fontFamily: "inherit",
-  color: "var(--color-paper, #F0EEEB)",
+  color: "var(--mp-text)",
   outline: "none",
   boxSizing: "border-box",
 };
@@ -444,7 +500,7 @@ const inputStyle = {
 const commentBtnStyle = {
   background: "none",
   border: "none",
-  color: "var(--color-fog, #A8A49C)",
+  color: "var(--mp-text-muted)",
   cursor: "pointer",
   fontSize: 12,
   fontFamily: "inherit",

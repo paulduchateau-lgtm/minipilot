@@ -89,7 +89,7 @@ export default function ReportVersionPanel({ reportId, currentVersion, api, onCo
                   cursor: "default",
                 }}
                 onMouseEnter={(e) => {
-                  if (!isCurrent) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                  if (!isCurrent) e.currentTarget.style.background = "var(--mp-nav-hover)";
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = isCurrent ? "var(--mp-accent-dim)" : "transparent";

@@ -305,6 +305,6 @@ function normalizeReport(r) {
     kpis,
     sections,
     subtitle: r.subtitle || "",
-    color: r.color || "#4A90B8",
+    color: r.color || "var(--mp-accent)",
   };
 }

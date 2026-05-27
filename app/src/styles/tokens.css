@@ -101,10 +101,10 @@
 [data-theme="light"] {
   --mp-bg:             var(--color-warm);
   --mp-bg-elevated:    var(--color-paper);
-  --mp-bg-card:        var(--color-paper);
-  --mp-bg-input:       var(--color-paper);
-  --mp-border:         var(--color-rule);
-  --mp-border-subtle:  var(--color-fog);
+  --mp-bg-card:        #FFFFFF;
+  --mp-bg-input:       #FFFFFF;
+  --mp-border:         rgba(28, 28, 26, 0.12);
+  --mp-border-subtle:  rgba(28, 28, 26, 0.06);
   --mp-text:           var(--color-ink);
   --mp-text-secondary: var(--color-moss);
   --mp-text-muted:     var(--color-sage);

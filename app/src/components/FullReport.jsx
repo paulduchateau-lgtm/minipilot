@@ -216,7 +216,7 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
   const Icon = getIcon(report.icon);
   const kpis = typeof report.kpis === "string" ? JSON.parse(report.kpis) : (report.kpis || []);
   const sections = typeof report.sections === "string" ? JSON.parse(report.sections) : (report.sections || []);
-  const color = report.color || "#4A90B8";
+  const color = report.color || "#A5D900";
 
   return (
     <div style={{ maxWidth: reportComments.length > 0 ? 1200 : 960, margin: "0 auto", transition: "max-width 200ms ease" }}>

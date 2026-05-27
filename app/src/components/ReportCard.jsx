@@ -12,7 +12,7 @@ function getIcon(iconName) {
 
 export default function ReportCard({ report, isFav, onToggleFav, onDelete, onRestore, onClick, isShared, isTrashed }) {
   const Icon = getIcon(report.icon);
-  const color = report.color || "#4A90B8";
+  const color = report.color || "#A5D900";
   const kpis = typeof report.kpis === "string" ? JSON.parse(report.kpis) : (report.kpis || []);
 
   return (
