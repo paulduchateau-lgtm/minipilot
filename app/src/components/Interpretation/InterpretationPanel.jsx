@@ -1,36 +1,35 @@
-import { X, BarChart3, Search, TrendingUp, Zap, Target, HelpCircle } from "lucide-react";
+import { X, BarChart3, AlertTriangle, ArrowRight } from "lucide-react";
 
 const SECTIONS = [
-  { key: "factuelle",       label: "Lecture factuelle",   Icon: BarChart3 },
-  { key: "analytique",      label: "Lecture analytique",  Icon: Search },
-  { key: "comparee",        label: "Lecture comparée",    Icon: TrendingUp },
-  { key: "signaux",         label: "Signaux faibles",     Icon: Zap },
-  { key: "recommandations", label: "Recommandations",     Icon: Target },
-  { key: "questions",       label: "Questions à creuser", Icon: HelpCircle },
+  { key: "faits",    label: "Faits clés", Icon: BarChart3 },
+  { key: "alertes",  label: "Alertes",    Icon: AlertTriangle },
+  { key: "actions",  label: "Actions",    Icon: ArrowRight },
 ];
 
 const ACCENT = "var(--color-green, #A5D900)";
-const TEXT = "var(--mp-text-secondary, #F0EEEB)";
+const ALERT_COLOR = "var(--mp-warm, #C45A32)";
 const FONT = "var(--font-body, 'DM Sans')";
 
 const panelStyle = {
-  background: "#363530", border: "1px solid var(--mp-border, #D5D1CB)",
-  borderRadius: 6, padding: "16px 20px", position: "relative",
-  marginTop: 12, marginBottom: 16,
+  background: "var(--mp-bg-elevated, #363530)",
+  border: "1px solid var(--mp-border, #D5D1CB)",
+  borderRadius: 6, padding: "14px 18px", position: "relative",
+  marginTop: 12, marginBottom: 12,
 };
 const closeBtnStyle = {
-  position: "absolute", top: 12, right: 12, background: "none",
+  position: "absolute", top: 10, right: 10, background: "none",
   border: "none", cursor: "pointer", color: "var(--mp-text-muted)",
   padding: 4, display: "flex", alignItems: "center", justifyContent: "center",
   borderRadius: 4, transition: "color 150ms ease",
 };
-const titleStyle = {
-  display: "flex", alignItems: "center", gap: 8,
-  fontSize: 12, fontWeight: 500, fontFamily: FONT,
-  color: "var(--color-paper, #F0EEEB)", marginBottom: 6,
+const labelStyle = {
+  display: "inline-flex", alignItems: "center", gap: 5,
+  fontSize: 10, fontWeight: 500, fontFamily: "var(--font-data, monospace)",
+  textTransform: "uppercase", letterSpacing: "0.1em",
+  marginBottom: 4,
 };
 const contentStyle = {
-  fontSize: 13, lineHeight: 1.7, color: TEXT,
+  fontSize: 12.5, lineHeight: 1.65, color: "var(--mp-text-secondary, #F0EEEB)",
   fontFamily: FONT, margin: 0, whiteSpace: "pre-wrap",
 };
 
@@ -40,10 +39,10 @@ function StreamingView({ text }) {
   return (
     <>
       <style>{CURSOR_CSS}</style>
-      <div style={{ ...contentStyle }}>
+      <div style={{ ...contentStyle, fontSize: 12 }}>
         {text}
         <span style={{
-          display: "inline-block", width: 2, height: 14,
+          display: "inline-block", width: 2, height: 13,
           background: ACCENT, marginLeft: 2, verticalAlign: "text-bottom",
           animation: "interpret-cursor 0.8s step-end infinite",
         }} />
@@ -52,12 +51,12 @@ function StreamingView({ text }) {
   );
 }
 
-function SectionBlock({ label, Icon, content }) {
+function SectionBlock({ label, Icon, content, color }) {
   if (!content) return null;
   return (
-    <div style={{ borderLeft: `3px solid ${ACCENT}`, paddingLeft: 14, marginBottom: 14 }}>
-      <div style={titleStyle}>
-        <Icon size={13} color={ACCENT} />
+    <div style={{ borderLeft: `3px solid ${color}`, paddingLeft: 12, marginBottom: 10 }}>
+      <div style={{ ...labelStyle, color }}>
+        <Icon size={11} />
         {label}
       </div>
       <p style={contentStyle}>{content}</p>
@@ -68,11 +67,11 @@ function SectionBlock({ label, Icon, content }) {
 function CloseBtn({ onClose }) {
   return (
     <button
-      onClick={onClose} style={closeBtnStyle} aria-label="Fermer l'interprétation"
+      onClick={onClose} style={closeBtnStyle} aria-label="Fermer"
       onMouseEnter={(e) => { e.currentTarget.style.color = "var(--mp-text)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.color = "var(--mp-text-muted)"; }}
     >
-      <X size={14} />
+      <X size={13} />
     </button>
   );
 }
@@ -82,10 +81,10 @@ export default function InterpretationPanel({ interpretation, loading, streaming
     return (
       <div style={panelStyle}>
         <CloseBtn onClose={onClose} />
-        <p style={{ fontSize: 13, color: "var(--mp-warm, #C45A32)", margin: 0, lineHeight: 1.6 }}>
+        <p style={{ fontSize: 12, color: ALERT_COLOR, margin: 0, lineHeight: 1.6 }}>
           {error}
         </p>
-        <p style={{ fontSize: 11, color: "var(--mp-text-muted)", margin: "8px 0 0" }}>
+        <p style={{ fontSize: 11, color: "var(--mp-text-muted)", margin: "6px 0 0" }}>
           Relancez l'interprétation pour réessayer.
         </p>
       </div>
@@ -98,14 +97,14 @@ export default function InterpretationPanel({ interpretation, loading, streaming
       {loading && streamingText != null ? (
         <StreamingView text={streamingText} />
       ) : loading ? (
-        <p style={{ fontSize: 13, color: "var(--mp-text-muted)", margin: 0, fontStyle: "italic" }}>
-          Analyse en cours...
+        <p style={{ fontSize: 12, color: "var(--mp-text-muted)", margin: 0, fontStyle: "italic" }}>
+          Analyse en cours…
         </p>
       ) : interpretation ? (
         <div>
-          {SECTIONS.map(({ key, label, Icon }) => (
-            <SectionBlock key={key} label={label} Icon={Icon} content={interpretation[key]} />
-          ))}
+          <SectionBlock key="faits" label="Faits clés" Icon={BarChart3} content={interpretation.faits} color={ACCENT} />
+          <SectionBlock key="alertes" label="Alertes" Icon={AlertTriangle} content={interpretation.alertes} color={ALERT_COLOR} />
+          <SectionBlock key="actions" label="Actions" Icon={ArrowRight} content={interpretation.actions} color={ACCENT} />
         </div>
       ) : null}
     </div>

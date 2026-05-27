@@ -279,12 +279,9 @@ function PdfTable({ section }) {
 
 // ── Interpretation block ─────────────────────────────────────────
 const INTERPRETATION_HEADERS = [
-  { key: "factuelle",       label: "Analyse factuelle" },
-  { key: "analytique",      label: "Analyse analytique" },
-  { key: "comparee",        label: "Analyse comparée" },
-  { key: "signaux",         label: "Signaux faibles" },
-  { key: "recommandations", label: "Recommandations" },
-  { key: "questions",       label: "Questions ouvertes" },
+  { key: "faits",    label: "Faits clés" },
+  { key: "alertes",  label: "Alertes" },
+  { key: "actions",  label: "Actions" },
 ];
 
 function InterpretationBlock({ interpretation }) {

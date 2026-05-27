@@ -64,7 +64,7 @@ export function registerInterpretRoutes(app, { dbGet, dbAll, dbRun, anthropic, s
 
       // Stream the response via SSE
       const fullText = await streamAnthropicSSE(anthropic, res, system, user, {
-        maxTokens: 4096,
+        maxTokens: 1500,
       });
 
       // Persist interpretation after streaming completes

@@ -337,7 +337,7 @@ function DataInspector({ section }) {
   );
 }
 
-export default function RenderSection({ section, feedbackMode, sectionFeedback, onSectionFeedback, sectionIndex, interpretation, interpretLoading, interpretStreamText, interpretError, onInterpret, onCloseInterpretation }) {
+export default function RenderSection({ section, feedbackMode, sectionFeedback, onSectionFeedback, sectionIndex, interpretation, interpretLoading, interpretStreamText, interpretError, onInterpret, onCloseInterpretation, hasPersistedInterpretation }) {
   const [expanded, setExpanded] = useState(true);
   const [annotating, setAnnotating] = useState(false);
   const ct = useChartTheme();
@@ -548,7 +548,7 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
             <InterpretButton
               onInterpret={() => onInterpret(sectionIndex)}
               loading={interpretLoading}
-              hasInterpretation={!!interpretation}
+              hasInterpretation={!!interpretation || !!hasPersistedInterpretation}
             />
           </div>
         )}

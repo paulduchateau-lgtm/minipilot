@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Star, StarOff, Download, Loader2, ArrowUpRight, ArrowDownRight, BarChart3, Activity, TrendingUp, Heart, AlertTriangle, Users, FileText, Calendar, Clock, Eye, Stethoscope, Building2, MessageSquare, ChevronDown } from "lucide-react";
 import RenderSection from "./RenderSection";
 import ReportFeedbackPanel from "./ReportFeedbackPanel";
@@ -16,14 +16,11 @@ function getIcon(iconName) {
   return ICON_MAP[iconName] || BarChart3;
 }
 
-// ── Parse 6-section interpretation from LLM text ───────────────────
+// ── Parse 3-section interpretation from LLM text ───────────────────
 const SECTION_KEYS = [
-  { key: "factuelle",       pattern: /##?\s*(?:1[\.\):]?\s*)?Lecture factuelle/i },
-  { key: "analytique",      pattern: /##?\s*(?:2[\.\):]?\s*)?Lecture analytique/i },
-  { key: "comparee",        pattern: /##?\s*(?:3[\.\):]?\s*)?Lecture compar[ée]/i },
-  { key: "signaux",         pattern: /##?\s*(?:4[\.\):]?\s*)?Signaux faibles/i },
-  { key: "recommandations", pattern: /##?\s*(?:5[\.\):]?\s*)?Recommandations/i },
-  { key: "questions",       pattern: /##?\s*(?:6[\.\):]?\s*)?Questions [àa] creuser/i },
+  { key: "faits",    pattern: /##?\s*Faits cl[ée]s/i },
+  { key: "alertes",  pattern: /##?\s*Alertes/i },
+  { key: "actions",  pattern: /##?\s*Actions/i },
 ];
 
 function parseInterpretation(text) {
@@ -40,8 +37,8 @@ function parseInterpretation(text) {
     const end = i + 1 < positions.length ? positions[i + 1].index : text.length;
     result[positions[i].key] = text.slice(start, end).replace(/^\s*\n/, "").trim();
   }
-  // If no sections found, put everything in factuelle
-  if (Object.keys(result).length === 0) result.factuelle = text.trim();
+  // If no sections found, put everything in faits
+  if (Object.keys(result).length === 0) result.faits = text.trim();
   return result;
 }
 
@@ -56,19 +53,49 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
   const [compareVersionNum, setCompareVersionNum] = useState(null);
 
   // ── Interpretation state ──────────────────────────────────────────
-  const [interpretations, setInterpretations] = useState({});       // { [sectionIndex]: { factuelle, analytique, ... } }
+  const [interpretations, setInterpretations] = useState({});       // { [sectionIndex]: { faits, alertes, actions } }
   const [interpretLoading, setInterpretLoading] = useState({});     // { [sectionIndex]: true/false }
   const [interpretStream, setInterpretStream] = useState({});       // { [sectionIndex]: "streaming text..." }
   const [interpretErrors, setInterpretErrors] = useState({});       // { [sectionIndex]: "error msg" }
+
+  // ── Load saved interpretations on mount ──
+  useEffect(() => {
+    if (!report?.id || !api?.getInterpretations) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await api.getInterpretations(report.id);
+        if (cancelled || !result?.interpretations?.length) return;
+        // Group by section_index, take most recent per section
+        const bySection = {};
+        for (const row of result.interpretations) {
+          const idx = row.section_index;
+          if (idx == null) continue;
+          if (!bySection[idx]) {
+            bySection[idx] = parseInterpretation(row.interpretation);
+          }
+        }
+        if (Object.keys(bySection).length > 0) {
+          setInterpretations(bySection);
+        }
+      } catch {
+        // Silently fail — interpretations are optional
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [report?.id]);
+
+  // Track which sections are visually hidden (collapsed) vs truly absent
+  const [interpretHidden, setInterpretHidden] = useState({});
 
   const handleInterpret = async (sectionIndex) => {
     const sections = typeof report.sections === "string" ? JSON.parse(report.sections) : (report.sections || []);
     const section = sections[sectionIndex];
     if (!section) return;
 
-    // If already has interpretation, toggle visibility (close it)
+    // If already has interpretation, toggle visibility
     if (interpretations[sectionIndex]) {
-      setInterpretations(prev => { const n = { ...prev }; delete n[sectionIndex]; return n; });
+      setInterpretHidden(prev => ({ ...prev, [sectionIndex]: !prev[sectionIndex] }));
       return;
     }
 
@@ -105,7 +132,7 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
   };
 
   const handleCloseInterpretation = (sectionIndex) => {
-    setInterpretations(prev => { const n = { ...prev }; delete n[sectionIndex]; return n; });
+    setInterpretHidden(prev => ({ ...prev, [sectionIndex]: true }));
     setInterpretErrors(prev => { const n = { ...prev }; delete n[sectionIndex]; return n; });
   };
 
@@ -362,12 +389,13 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
               sectionFeedback={sectionFeedbacks[i] || ""}
               onSectionFeedback={(idx, text) => setSectionFeedbacks(prev => ({ ...prev, [idx]: text }))}
               sectionIndex={i}
-              interpretation={interpretations[i] || null}
+              interpretation={(!interpretHidden[i] && interpretations[i]) || null}
               interpretLoading={!!interpretLoading[i]}
               interpretStreamText={interpretStream[i] || null}
               interpretError={interpretErrors[i] || null}
               onInterpret={handleInterpret}
               onCloseInterpretation={handleCloseInterpretation}
+              hasPersistedInterpretation={!!interpretations[i]}
             />
           ))}
         </>
