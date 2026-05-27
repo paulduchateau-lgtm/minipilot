@@ -3810,6 +3810,10 @@ Réponds UNIQUEMENT avec un JSON valide (sans markdown, sans \`\`\`) représenta
   }
 });
 
+// ─── Interpretation routes ────────────────────────────────────────────────────
+
+registerInterpretRoutes(app, { dbGet, dbAll, dbRun, anthropic, streamAnthropicSSE });
+
 // ─── API 404 handler (only for /api/* routes) ────────────────────────────────
 
 app.all("/api/*", (req, res) => {
@@ -3850,10 +3854,6 @@ if (!IS_VERCEL && fs.existsSync(STATIC_DIR)) {
     }
   });
 }
-
-// ─── Interpretation routes ────────────────────────────────────────────────────
-
-registerInterpretRoutes(app, { dbGet, dbAll, dbRun, anthropic, streamAnthropicSSE });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
