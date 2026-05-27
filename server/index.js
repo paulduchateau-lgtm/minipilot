@@ -278,6 +278,23 @@ async function initDatabase() {
     await dbRun("UPDATE project_context SET workspace_id = ? WHERE workspace_id IS NULL", defaultId);
     console.log(`Migrated existing data to default workspace: "${defaultName}" (/${defaultSlug})`);
   }
+
+  // ── Seed users ──────────────────────────────────────────────────────────────
+  const seedUsers = [
+    { email: "paul.duchateau@lite-ops.com", password: "alleluia", name: "Paul Duchateau" },
+    { email: "nicolas.bazille@thefork.fr", password: "nb4zille33850rpz", name: "Nicolas Bazille" },
+  ];
+  for (const u of seedUsers) {
+    const exists = await dbGet("SELECT id FROM users WHERE email = ?", u.email);
+    const hash = await bcrypt.hash(u.password, 10);
+    if (!exists) {
+      const id = `user_${crypto.randomUUID()}`;
+      await dbRun("INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, ?)", id, u.email, hash, u.name);
+      console.log(`Seeded user: ${u.email}`);
+    } else {
+      await dbRun("UPDATE users SET password_hash = ?, name = ? WHERE email = ?", hash, u.name, u.email);
+    }
+  }
 }
 
 await initDatabase();
