@@ -217,6 +217,7 @@ async function initDatabase() {
   try { await db.executeMultiple("ALTER TABLE reports ADD COLUMN trashed INTEGER DEFAULT 0"); } catch {}
   try { await db.executeMultiple("ALTER TABLE reports ADD COLUMN current_version INTEGER DEFAULT 1"); } catch {}
   try { await db.executeMultiple("ALTER TABLE workspaces ADD COLUMN product_type TEXT DEFAULT 'pilot'"); } catch {}
+  try { await db.executeMultiple("ALTER TABLE project_context ADD COLUMN expertise_prompt TEXT"); } catch {}
 
   // Backfill: if data exists but no workspaces, create a default workspace
   const wsCountRow = await dbGet("SELECT COUNT(*) AS cnt FROM workspaces");
@@ -241,6 +242,18 @@ async function initDatabase() {
 }
 
 await initDatabase();
+
+// ─── Expertise identity builder ──────────────────────────────────────────────
+// Returns the LLM identity sentence from project_context.expertise_prompt,
+// falling back to a generic data analyst prompt.
+
+const DEFAULT_EXPERTISE = "Tu es Pilot, un assistant analytique expert en data analytics.";
+
+function buildExpertiseIdentity(context) {
+  if (context?.expertise_prompt) return context.expertise_prompt;
+  if (context?.industry) return `Tu es Pilot, un assistant analytique expert en ${context.industry}.`;
+  return DEFAULT_EXPERTISE;
+}
 
 // ─── AI clients ──────────────────────────────────────────────────────────────
 //
@@ -1306,6 +1319,7 @@ function formatContext(row) {
     objectives: row.objectives,
     questionnaire: row.questionnaire ? JSON.parse(row.questionnaire) : null,
     freeText: row.free_text,
+    expertisePrompt: row.expertise_prompt,
     updatedAt: row.updated_at,
   };
 }
@@ -1574,7 +1588,7 @@ Texte libre : ${context.free_text || "—"}`
       return `Table "${table}" :\n${entries}`;
     }).join("\n\n");
 
-    const prompt = `Tu es un expert en data analytics pour les mutuelles santé collectives françaises.
+    const prompt = `${buildExpertiseIdentity(context)}
 
 CONTEXTE PROJET :
 ${contextText}
@@ -1652,7 +1666,7 @@ app.post("/api/ai/generate-report", async (req, res) => {
       return `Table "${table}" :\n${entries}`;
     }).join("\n\n");
 
-    const prompt = `Tu es un expert data pour mutuelles santé collectives françaises.
+    const prompt = `${buildExpertiseIdentity(context)}
 
 CONTEXTE :
 ${contextText}
@@ -1770,7 +1784,7 @@ app.post("/api/ai/chat", async (req, res) => {
       return `Table "${table}" :\n${entries}`;
     }).join("\n\n");
 
-    const systemPrompt = `Tu es Minipilot, un assistant analytique expert en mutuelles santé collectives françaises (mutuelle santé collective, sinistralité, prestations, cotisations, bénéficiaires).
+    const systemPrompt = `${buildExpertiseIdentity(context)}
 
 CONTEXTE PROJET :
 ${contextText}
@@ -2315,20 +2329,20 @@ app.post("/api/w/:slug/upload", upload.array("files", 10), async (req, res) => {
 
 app.post("/api/w/:slug/context", async (req, res) => {
   try {
-    const { projectName, industry, objectives, questionnaire, freeText } = req.body;
+    const { projectName, industry, objectives, questionnaire, freeText, expertisePrompt } = req.body;
     const workspaceId = req.workspace.id;
     const existing = await dbGet("SELECT * FROM project_context WHERE workspace_id = ?", workspaceId);
     if (existing) {
       await dbRun(`
         UPDATE project_context SET
-          project_name = ?, industry = ?, objectives = ?, questionnaire = ?, free_text = ?, updated_at = CURRENT_TIMESTAMP
+          project_name = ?, industry = ?, objectives = ?, questionnaire = ?, free_text = ?, expertise_prompt = ?, updated_at = CURRENT_TIMESTAMP
         WHERE workspace_id = ?
-      `, projectName || null, industry || null, objectives || null, questionnaire ? JSON.stringify(questionnaire) : null, freeText || null, workspaceId);
+      `, projectName || null, industry || null, objectives || null, questionnaire ? JSON.stringify(questionnaire) : null, freeText || null, expertisePrompt || existing.expertise_prompt || null, workspaceId);
     } else {
       await dbRun(`
-        INSERT INTO project_context (project_name, industry, objectives, questionnaire, free_text, workspace_id, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `, projectName || null, industry || null, objectives || null, questionnaire ? JSON.stringify(questionnaire) : null, freeText || null, workspaceId);
+        INSERT INTO project_context (project_name, industry, objectives, questionnaire, free_text, expertise_prompt, workspace_id, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `, projectName || null, industry || null, objectives || null, questionnaire ? JSON.stringify(questionnaire) : null, freeText || null, expertisePrompt || null, workspaceId);
     }
     const saved = await dbGet("SELECT * FROM project_context WHERE workspace_id = ?", workspaceId);
     res.json({ context: formatContext(saved) });
@@ -2583,7 +2597,7 @@ app.post("/api/w/:slug/ai/suggest-reports", async (req, res) => {
       ? `Projet : ${context.project_name || "non renseigné"}\nSecteur : ${context.industry || "non renseigné"}\nObjectifs : ${context.objectives || "non renseignés"}\nTexte libre : ${context.free_text || "—"}`
       : "Aucun contexte projet renseigné.";
 
-    const prompt = `Tu es un expert en data analytics.
+    const prompt = `${buildExpertiseIdentity(context)}
 
 CONTEXTE PROJET :
 ${contextText}
@@ -2654,7 +2668,7 @@ app.post("/api/w/:slug/ai/generate-report", async (req, res) => {
       : "Aucun contexte renseigné.";
 
     // ── Spec+Compute prompt : LLM generates a spec, we compute the data ──
-    const prompt = `Tu es un expert data analytics.
+    const prompt = `${buildExpertiseIdentity(context)}
 
 CONTEXTE :
 ${contextText}
@@ -3014,7 +3028,7 @@ app.post("/api/w/:slug/ai/chat", async (req, res) => {
       }
     }
 
-    const systemPrompt = `Tu es Minipilot, un assistant analytique expert. Tu analyses les données du projet "${projectName}"${industry ? ` dans le secteur ${industry}` : ""}.
+    const systemPrompt = `${buildExpertiseIdentity(context)} Tu analyses les données du projet "${projectName}".
 ${objectives ? `\nObjectifs du projet : ${objectives}` : ""}
 ${scope ? `\nPérimètre : ${scope}` : ""}
 ${indicateurs.length ? `\nAxes d'analyse attendus : ${indicateurs.join(", ")}` : ""}
@@ -3284,12 +3298,13 @@ app.post("/api/w/:slug/reports/:id/iterate", async (req, res) => {
       .map(sf => `Section ${sf.index + 1} ("${currentReport.sections[sf.index]?.title || '?'}"): ${sf.text}`)
       .join("\n");
 
+    const context = await dbGet("SELECT * FROM project_context WHERE workspace_id = ?", ws.id);
     const dataSummary = await buildDataSummary(10, ws.id);
     const dataText = aiMode === "local" ? "" : dataSummary.map(t =>
       `Table "${t.name}" (${t.rowCount} lignes) : ${t.columns.map(c => c.name).join(", ")}`
     ).join("\n");
 
-    const prompt = `Tu es un expert analytique. Voici un rapport existant :
+    const prompt = `${buildExpertiseIdentity(context)} Voici un rapport existant :
 
 RAPPORT ACTUEL (JSON) :
 ${JSON.stringify(currentReport, null, 2)}
@@ -3734,7 +3749,7 @@ app.post("/api/w/:slug/ai/generate-section", async (req, res) => {
     const typeRule = chartRules[type] || chartRules.bar;
     const actualType = type === "pie" ? "pie_multi" : type;
 
-    const prompt = `Tu es un expert data pour l'analyse de données organisationnelles.
+    const prompt = `${buildExpertiseIdentity(context)}
 
 CONTEXTE :
 ${contextText}

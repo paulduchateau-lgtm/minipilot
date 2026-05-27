@@ -1,0 +1,11 @@
+{
+  "name": "@liteops/ds",
+  "version": "1.0.0",
+  "exports": {
+    "./tokens/all.css": "./tokens/all.css",
+    "./tokens/colors.css": "./tokens/colors.css",
+    "./tokens/typography.css": "./tokens/typography.css",
+    "./tokens/spacing.css": "./tokens/spacing.css",
+    "./tokens/tiers.css": "./tokens/tiers.css"
+  }
+}

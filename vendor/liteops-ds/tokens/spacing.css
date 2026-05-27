@@ -1,0 +1,39 @@
+/**
+ * @liteops/ds — Tokens d'espacement
+ * REF-DS/TOKENS/SPACING v1.0
+ *
+ * Grille de 4px. Tout espacement est un multiple de 4.
+ */
+
+:root {
+  --sp-0:  0;
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-5:  20px;
+  --sp-6:  24px;
+  --sp-7:  28px;
+  --sp-8:  32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-14: 56px;
+  --sp-16: 64px;
+  --sp-20: 80px;
+  --sp-24: 96px;
+  --sp-32: 128px;
+
+  /* ─── Border radius par tier ─────────────────────── */
+  --radius-t1: 0;     /* T1 Public — zéro border-radius */
+  --radius-t2: 6px;   /* T2 Product — arrondi doux */
+  --radius-t3: 0;     /* T3 Docs — zéro border-radius */
+
+  /* ─── Épaisseurs de bordure ──────────────────────── */
+  --border-hairline: 1px;
+  --border-rule:     1px;
+
+  /* ─── Largeurs max ───────────────────────────────── */
+  --max-w-content: 1240px;
+  --max-w-text:    640px;
+  --max-w-narrow:  520px;
+}

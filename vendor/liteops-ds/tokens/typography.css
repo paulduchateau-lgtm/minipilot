@@ -1,0 +1,120 @@
+/**
+ * @liteops/ds — Tokens typographiques
+ * REF-DS/TOKENS/TYPOGRAPHY v1.0
+ *
+ * 2 familles uniquement :
+ *   DM Sans     — texte courant, max weight 500
+ *   JetBrains Mono — labels, codes, monospace
+ *
+ * JAMAIS : Source Serif 4, IBM Plex Mono, Inter, ou toute autre famille.
+ */
+
+/* Google Fonts — charger une seule fois au niveau app */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ─── Familles ───────────────────────────────────── */
+  --font-sans:   'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono:   'JetBrains Mono', 'Menlo', 'Monaco', monospace;
+
+  /* ─── Échelle de taille ──────────────────────────── */
+  --text-display:   32px;   /* DM Sans 300, tracking -0.02em */
+  --text-headline:  24px;   /* DM Sans 300, tracking -0.015em */
+  --text-title:     18px;   /* DM Sans 400 */
+  --text-body-lg:   15px;   /* DM Sans 400 */
+  --text-body:      14px;   /* DM Sans 400 */
+  --text-body-sm:   13px;   /* DM Sans 400 */
+  --text-caption:   12px;   /* DM Sans 400 */
+  --text-label:     10px;   /* JetBrains Mono 500, UPPERCASE, tracking 0.15em */
+  --text-label-sm:  9px;    /* JetBrains Mono 500, UPPERCASE, tracking 0.14em */
+  --text-label-xs:  8px;    /* JetBrains Mono 500, UPPERCASE, tracking 0.18em */
+  --text-code:      12px;   /* JetBrains Mono 400 */
+  --text-code-sm:   11px;   /* JetBrains Mono 400 */
+
+  /* ─── Graisses ───────────────────────────────────── */
+  --weight-light:   300;
+  --weight-regular: 400;
+  --weight-medium:  500;
+  /* RÈGLE : DM Sans n'excède jamais 500. Jamais de 600, 700 dans l'UI. */
+
+  /* ─── Interlettrage ──────────────────────────────── */
+  --tracking-tight:  -0.02em;   /* display */
+  --tracking-snug:   -0.015em;  /* headline */
+  --tracking-normal:  0;        /* body */
+  --tracking-mono:    0.12em;   /* mono labels minimum */
+  --tracking-mono-md: 0.15em;   /* mono labels standard */
+  --tracking-mono-lg: 0.18em;   /* mono labels large */
+  --tracking-mono-xl: 0.22em;   /* logo */
+
+  /* ─── Hauteur de ligne ───────────────────────────── */
+  --leading-tight:  1.05;
+  --leading-snug:   1.15;
+  --leading-normal: 1.5;
+  --leading-relaxed:1.65;
+  --leading-code:   1.8;
+}
+
+/* ─── Classes utilitaires ────────────────────────────────────────────────── */
+
+.ds-display {
+  font-family: var(--font-sans);
+  font-size: var(--text-display);
+  font-weight: var(--weight-light);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+.ds-headline {
+  font-family: var(--font-sans);
+  font-size: var(--text-headline);
+  font-weight: var(--weight-light);
+  letter-spacing: var(--tracking-snug);
+  line-height: var(--leading-snug);
+}
+
+.ds-title {
+  font-family: var(--font-sans);
+  font-size: var(--text-title);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-snug);
+}
+
+.ds-body {
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-relaxed);
+}
+
+.ds-caption {
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-normal);
+}
+
+/* Mono label — toujours uppercase, toujours tracké */
+.ds-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-mono-md);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.ds-label-sm {
+  font-family: var(--font-mono);
+  font-size: var(--text-label-sm);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-mono-md);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.ds-code {
+  font-family: var(--font-mono);
+  font-size: var(--text-code);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-code);
+}

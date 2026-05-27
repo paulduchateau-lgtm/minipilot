@@ -1,0 +1,15 @@
+/**
+ * @liteops/ds — Import global de tous les tokens
+ * REF-DS/TOKENS/ALL v1.0
+ *
+ * Point d'entrée unique CSS.
+ * À importer une fois dans le layout racine de chaque projet.
+ *
+ * Usage :
+ *   import '@liteops/ds/tokens/all.css'
+ */
+
+@import './colors.css';
+@import './typography.css';
+@import './spacing.css';
+@import './tiers.css';

@@ -1,0 +1,7 @@
+server/.env
+server/minipilot.db
+server/minipilot.db-shm
+server/minipilot.db-wal
+server/uploads/
+.claude/
+docs/
