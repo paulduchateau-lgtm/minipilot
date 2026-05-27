@@ -283,20 +283,23 @@ async function initDatabase() {
     console.log(`Migrated existing data to default workspace: "${defaultName}" (/${defaultSlug})`);
   }
 
-  // ── Seed users ──────────────────────────────────────────────────────────────
-  const seedUsers = [
-    { email: "paul.duchateau@lite-ops.com", password: "alleluia", name: "Paul Duchateau", role: "admin", tenant: null },
-    { email: "nicolas.bazille@thefork.fr", password: "nb4zille33850rpz", name: "Nicolas Bazille", role: "member", tenant: "thefork" },
-  ];
-  for (const u of seedUsers) {
-    const exists = await dbGet("SELECT id FROM users WHERE email = ?", u.email);
-    const hash = await bcrypt.hash(u.password, 10);
-    if (!exists) {
-      const id = `user_${crypto.randomUUID()}`;
-      await dbRun("INSERT INTO users (id, email, password_hash, name, role, tenant) VALUES (?, ?, ?, ?, ?, ?)", id, u.email, hash, u.name, u.role, u.tenant);
-      console.log(`Seeded user: ${u.email}`);
-    } else {
-      await dbRun("UPDATE users SET password_hash = ?, name = ?, role = ?, tenant = ? WHERE email = ?", hash, u.name, u.role, u.tenant, u.email);
+  // ── Seed users (from SEED_USERS env var) ────────────────────────────────────
+  // Format: email:password:name:role:tenant;email:password:name:role:tenant
+  if (process.env.SEED_USERS) {
+    for (const entry of process.env.SEED_USERS.split(";").filter(Boolean)) {
+      const [email, password, name, role, tenant] = entry.split(":");
+      if (!email || !password) continue;
+      const exists = await dbGet("SELECT id FROM users WHERE email = ?", email);
+      const hash = await bcrypt.hash(password, 10);
+      if (!exists) {
+        const id = `user_${crypto.randomUUID()}`;
+        await dbRun("INSERT INTO users (id, email, password_hash, name, role, tenant) VALUES (?, ?, ?, ?, ?, ?)",
+          id, email, hash, name || null, role || "member", tenant || null);
+        console.log(`Seeded user: ${email}`);
+      } else {
+        await dbRun("UPDATE users SET password_hash = ?, name = ?, role = ?, tenant = ? WHERE email = ?",
+          hash, name || null, role || "member", tenant || null, email);
+      }
     }
   }
 
