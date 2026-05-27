@@ -56,12 +56,16 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
   const [publishStatus, setPublishStatus] = useState(null);
   const [publishLoading, setPublishLoading] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [commentsOpen, setCommentsOpen] = useState(false);
   const [reportComments, setReportComments] = useState([]);
 
   useEffect(() => {
     if (!report?.id || !api?.getPublishStatus) return;
-    api.getPublishStatus(report.id).then(setPublishStatus).catch(() => {});
+    api.getPublishStatus(report.id).then(status => {
+      setPublishStatus(status);
+      if (status?.published) {
+        api.getReportComments(report.id).then(r => setReportComments(r.comments || [])).catch(() => {});
+      }
+    }).catch(() => {});
   }, [report?.id]);
 
   const handlePublish = async () => {
@@ -92,15 +96,12 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
     });
   };
 
-  const handleToggleComments = async () => {
-    if (!commentsOpen && publishStatus?.published) {
-      try {
-        const result = await api.getReportComments(report.id);
-        setReportComments(result.comments || []);
-      } catch {}
-    }
-    setCommentsOpen(!commentsOpen);
-  };
+  const commentsBySection = {};
+  for (const c of reportComments) {
+    const idx = c.section_index != null ? c.section_index : "general";
+    if (!commentsBySection[idx]) commentsBySection[idx] = [];
+    commentsBySection[idx].push(c);
+  }
 
   // ── Interpretation state ──────────────────────────────────────────
   const [interpretations, setInterpretations] = useState({});       // { [sectionIndex]: { faits, alertes, actions } }
@@ -218,7 +219,7 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
   const color = report.color || "#4A90B8";
 
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto" }}>
+    <div style={{ maxWidth: reportComments.length > 0 ? 1200 : 960, margin: "0 auto", transition: "max-width 200ms ease" }}>
       {/* Header */}
       <div style={{ marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
@@ -363,20 +364,15 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
                 {linkCopied ? <Check size={14} /> : <Copy size={14} />}
                 {linkCopied ? "Copié !" : "Lien"}
               </button>
-              {publishStatus.commentCount > 0 && (
-                <button
-                  onClick={handleToggleComments}
-                  style={{
-                    background: "var(--mp-bg-card)", border: "1px solid var(--mp-border)",
-                    borderRadius: "var(--radius-sm)", padding: "8px 10px", cursor: "pointer",
-                    display: "flex", alignItems: "center", gap: 4,
-                    color: "var(--mp-text-muted)", fontSize: 12, fontFamily: "var(--font-body)",
-                  }}
-                  title="Voir les commentaires"
-                >
+              {reportComments.length > 0 && (
+                <span style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  color: "var(--mp-text-muted)", fontSize: 12, fontFamily: "var(--font-body)",
+                  padding: "8px 10px",
+                }}>
                   <MessageSquare size={14} />
-                  {publishStatus.commentCount}
-                </button>
+                  {reportComments.length}
+                </span>
               )}
               <button
                 onClick={handleUnpublish}
@@ -412,51 +408,7 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
         </div>
       </div>
 
-      {/* Published report comments panel */}
-      {commentsOpen && reportComments.length > 0 && (
-        <div style={{
-          background: "var(--mp-bg-card)", border: "1px solid var(--mp-border)",
-          borderRadius: "var(--radius-md)", padding: 16, marginBottom: 20,
-        }}>
-          <h3 style={{
-            fontSize: 13, fontWeight: 500, marginBottom: 12,
-            display: "flex", alignItems: "center", gap: 6,
-            color: "var(--mp-text-muted)",
-          }}>
-            <MessageSquare size={14} /> Commentaires des visiteurs ({reportComments.length})
-          </h3>
-          {reportComments.map(c => (
-            <div key={c.id} style={{
-              background: "rgba(255,255,255,0.02)",
-              border: "1px solid var(--mp-border)",
-              borderRadius: "var(--radius-sm)", padding: "10px 14px",
-              marginBottom: 8,
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontSize: 12, color: "var(--mp-text-muted)", fontWeight: 500 }}>
-                  {c.author_name || "Anonyme"}
-                  {c.section_index != null && (
-                    <span style={{
-                      marginLeft: 8, fontSize: 10,
-                      fontFamily: "var(--font-data)", textTransform: "uppercase",
-                      letterSpacing: "0.1em", color: "var(--mp-accent)",
-                    }}>Section {c.section_index + 1}</span>
-                  )}
-                </span>
-                <span style={{
-                  fontSize: 10, fontFamily: "var(--font-data)",
-                  color: "var(--mp-text-muted)",
-                }}>
-                  {new Date(c.created_at).toLocaleDateString("fr-FR", {
-                    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
-                  })}
-                </span>
-              </div>
-              <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5 }}>{c.body}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Comment margin indicator */}
 
       {/* Compare mode or normal report content */}
       {compareMode ? (
@@ -539,26 +491,74 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
             )}
           </div>
 
-          {/* Sections */}
-          {sections.map((s, i) => (
-            <RenderSection
-              key={i}
-              section={s}
-              feedbackMode={feedbackOpen}
-              sectionFeedback={sectionFeedbacks[i] || ""}
-              onSectionFeedback={(idx, text) => setSectionFeedbacks(prev => ({ ...prev, [idx]: text }))}
-              sectionIndex={i}
-              interpretation={(!interpretHidden[i] && interpretations[i]) || null}
-              interpretLoading={!!interpretLoading[i]}
-              interpretStreamText={interpretStream[i] || null}
-              interpretError={interpretErrors[i] || null}
-              onInterpret={handleInterpret}
-              onCloseInterpretation={handleCloseInterpretation}
-              hasPersistedInterpretation={!!interpretations[i]}
-            />
-          ))}
+          {/* Sections with comment margin */}
+          {sections.map((s, i) => {
+            const sComments = commentsBySection[i] || [];
+            return (
+              <div key={i} style={{
+                display: sComments.length > 0 ? "grid" : "block",
+                gridTemplateColumns: sComments.length > 0 ? "1fr 240px" : "1fr",
+                gap: sComments.length > 0 ? 20 : 0,
+                alignItems: "start",
+              }}>
+                <RenderSection
+                  section={s}
+                  feedbackMode={feedbackOpen}
+                  sectionFeedback={sectionFeedbacks[i] || ""}
+                  onSectionFeedback={(idx, text) => setSectionFeedbacks(prev => ({ ...prev, [idx]: text }))}
+                  sectionIndex={i}
+                  interpretation={(!interpretHidden[i] && interpretations[i]) || null}
+                  interpretLoading={!!interpretLoading[i]}
+                  interpretStreamText={interpretStream[i] || null}
+                  interpretError={interpretErrors[i] || null}
+                  onInterpret={handleInterpret}
+                  onCloseInterpretation={handleCloseInterpretation}
+                  hasPersistedInterpretation={!!interpretations[i]}
+                />
+                {sComments.length > 0 && (
+                  <div style={{ paddingTop: 36 }}>
+                    {sComments.map(c => (
+                      <MarginComment key={c.id} comment={c} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </>
       )}
+    </div>
+  );
+}
+
+function MarginComment({ comment }) {
+  return (
+    <div style={{
+      borderLeft: "2px solid var(--mp-accent)",
+      padding: "6px 10px",
+      marginBottom: 10,
+      fontSize: 12,
+      lineHeight: 1.5,
+    }}>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginBottom: 3,
+      }}>
+        <span style={{ fontWeight: 500, color: "var(--mp-accent)", fontSize: 11 }}>
+          {comment.author_name || "Anonyme"}
+        </span>
+        <span style={{
+          fontSize: 9, fontFamily: "var(--font-data)",
+          color: "var(--mp-text-muted)", letterSpacing: "0.05em",
+        }}>
+          {new Date(comment.created_at).toLocaleDateString("fr-FR", {
+            day: "numeric", month: "short",
+          })}
+        </span>
+      </div>
+      <p style={{ margin: 0, color: "var(--mp-text-secondary)", fontSize: 12 }}>
+        {comment.body}
+      </p>
     </div>
   );
 }

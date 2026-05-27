@@ -113,7 +113,7 @@ export default function PublicReportPage() {
 
   return (
     <div style={pageStyle}>
-      <div style={{ maxWidth: 960, margin: "0 auto", padding: "40px 24px 80px" }}>
+      <div style={{ maxWidth: comments.length > 0 ? 1200 : 960, margin: "0 auto", padding: "40px 24px 80px", transition: "max-width 200ms ease" }}>
         {/* Branding bar */}
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -194,59 +194,49 @@ export default function PublicReportPage() {
           </div>
         )}
 
-        {/* Sections */}
+        {/* Sections with comment margin */}
         {sections.map((section, i) => {
           const sectionComments = commentsBySection[i] || [];
+          const hasMargin = sectionComments.length > 0 || commentSection === i;
           return (
-            <div key={i} style={{ marginBottom: 32 }}>
-              <RenderSection
-                section={section}
-                index={i}
-                color={color}
-              />
+            <div key={i} style={{
+              display: "grid",
+              gridTemplateColumns: hasMargin ? "1fr 240px" : "1fr",
+              gap: hasMargin ? 20 : 0,
+              alignItems: "start",
+              marginBottom: 32,
+            }}>
+              <div>
+                <RenderSection section={section} index={i} color={color} />
+                <div style={{ marginTop: 8 }}>
+                  {commentSection !== i && (
+                    <button onClick={() => setCommentSection(i)} style={commentBtnStyle}>
+                      <MessageSquare size={12} />
+                      Commenter cette section
+                    </button>
+                  )}
+                </div>
+              </div>
 
-              {/* Comments on this section */}
-              {sectionComments.length > 0 && (
-                <div style={{ marginTop: 12, paddingLeft: 16, borderLeft: `2px solid ${color}33` }}>
+              {hasMargin && (
+                <div style={{ paddingTop: 36 }}>
                   {sectionComments.map(c => (
-                    <CommentBubble key={c.id} comment={c} />
+                    <MarginComment key={c.id} comment={c} color={color} />
                   ))}
+                  {commentSection === i && (
+                    <CommentForm
+                      author={commentAuthor}
+                      setAuthor={setCommentAuthor}
+                      body={commentBody}
+                      setBody={setCommentBody}
+                      sending={commentSending}
+                      success={commentSuccess}
+                      onSubmit={handleSubmitComment}
+                      onCancel={() => { setCommentSection(null); setCommentBody(""); }}
+                    />
+                  )}
                 </div>
               )}
-
-              {/* Comment button for this section */}
-              <div style={{ marginTop: 8 }}>
-                {commentSection === i ? (
-                  <CommentForm
-                    author={commentAuthor}
-                    setAuthor={setCommentAuthor}
-                    body={commentBody}
-                    setBody={setCommentBody}
-                    sending={commentSending}
-                    success={commentSuccess}
-                    onSubmit={handleSubmitComment}
-                    onCancel={() => { setCommentSection(null); setCommentBody(""); }}
-                  />
-                ) : (
-                  <button
-                    onClick={() => setCommentSection(i)}
-                    style={commentBtnStyle}
-                  >
-                    <MessageSquare size={12} />
-                    Commenter cette section
-                    {sectionComments.length > 0 && (
-                      <span style={{
-                        background: color + "30",
-                        color: color,
-                        fontSize: 10,
-                        padding: "2px 6px",
-                        borderRadius: 4,
-                        fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-                      }}>{sectionComments.length}</span>
-                    )}
-                  </button>
-                )}
-              </div>
             </div>
           );
         })}
@@ -296,6 +286,38 @@ export default function PublicReportPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function MarginComment({ comment, color }) {
+  return (
+    <div style={{
+      borderLeft: `2px solid ${color || "var(--color-amber, #C4872E)"}`,
+      padding: "6px 10px",
+      marginBottom: 10,
+      fontSize: 12,
+      lineHeight: 1.5,
+    }}>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginBottom: 3,
+      }}>
+        <span style={{ fontWeight: 500, color: color || "var(--color-amber, #C4872E)", fontSize: 11 }}>
+          {comment.author_name || "Anonyme"}
+        </span>
+        <span style={{
+          fontSize: 9, fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+          color: "var(--color-sage, #7A7A6E)", letterSpacing: "0.05em",
+        }}>
+          {new Date(comment.created_at).toLocaleDateString("fr-FR", {
+            day: "numeric", month: "short",
+          })}
+        </span>
+      </div>
+      <p style={{ margin: 0, color: "var(--color-fog, #A8A49C)", fontSize: 12 }}>
+        {comment.body}
+      </p>
     </div>
   );
 }
