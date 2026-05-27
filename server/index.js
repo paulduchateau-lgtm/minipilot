@@ -15,6 +15,8 @@ import { createClient } from "@libsql/client";
 import Anthropic from "@anthropic-ai/sdk";
 import { Mistral } from "@mistralai/mistralai";
 import { v4 as uuidv4 } from "uuid";
+import bcrypt from "bcryptjs";
+import session from "express-session";
 import mammoth from "mammoth";
 import { initScheduler, registerSchedule, unregisterSchedule, executeSchedule, buildCronExpression } from './scheduler.js';
 import { materialize, getMaterializedContext } from './materializer.js';
@@ -172,6 +174,42 @@ async function initDatabase() {
       FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_mv_ws ON materialized_views(workspace_id, view_type);
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      name TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_members (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'owner',
+      PRIMARY KEY (workspace_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS published_reports (
+      id TEXT PRIMARY KEY,
+      report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      token TEXT UNIQUE NOT NULL,
+      published_by TEXT REFERENCES users(id),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pub_token ON published_reports(token);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pub_report ON published_reports(report_id);
+
+    CREATE TABLE IF NOT EXISTS report_comments (
+      id TEXT PRIMARY KEY,
+      published_report_id TEXT NOT NULL REFERENCES published_reports(id) ON DELETE CASCADE,
+      section_index INTEGER,
+      author_name TEXT,
+      body TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_comments_pub ON report_comments(published_report_id);
   `);
 
   await db.executeMultiple(`
@@ -479,8 +517,21 @@ const app = express();
 const ALLOWED_ORIGINS = IS_VERCEL
   ? [/\.vercel\.app$/, /localhost/]
   : ["http://localhost:5173", "http://localhost:5183", "http://localhost:5174"];
-app.use(cors({ origin: ALLOWED_ORIGINS }));
+app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
+
+const SESSION_SECRET = process.env.SESSION_SECRET || "pilot-dev-secret-change-in-prod";
+app.use(session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: IS_VERCEL,
+    sameSite: IS_VERCEL ? "none" : "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  },
+}));
 
 // ─── Multer config ────────────────────────────────────────────────────────────
 
@@ -1056,11 +1107,86 @@ async function buildFullDataContext(workspaceId) {
   return result;
 }
 
+// ─── Auth helpers ─────────────────────────────────────────────────────────────
+
+function requireAuth(req, res, next) {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: "Authentification requise." });
+  }
+  next();
+}
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
+
+// ── POST /api/auth/register ──────────────────────────────────────────────────
+
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    if (!email || !password) return res.status(400).json({ error: "Email et mot de passe requis." });
+    if (password.length < 6) return res.status(400).json({ error: "Le mot de passe doit faire au moins 6 caractères." });
+
+    const existing = await dbGet("SELECT id FROM users WHERE email = ?", email.toLowerCase().trim());
+    if (existing) return res.status(409).json({ error: "Un compte existe déjà avec cet email." });
+
+    const id = uuidv4();
+    const hash = await bcrypt.hash(password, 10);
+    await dbRun("INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, ?)",
+      id, email.toLowerCase().trim(), hash, name || null);
+
+    req.session.userId = id;
+    res.status(201).json({ user: { id, email: email.toLowerCase().trim(), name: name || null } });
+  } catch (err) {
+    console.error("[POST /api/auth/register]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/auth/login ─────────────────────────────────────────────────────
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: "Email et mot de passe requis." });
+
+    const user = await dbGet("SELECT * FROM users WHERE email = ?", email.toLowerCase().trim());
+    if (!user) return res.status(401).json({ error: "Email ou mot de passe incorrect." });
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: "Email ou mot de passe incorrect." });
+
+    req.session.userId = user.id;
+    res.json({ user: { id: user.id, email: user.email, name: user.name } });
+  } catch (err) {
+    console.error("[POST /api/auth/login]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/auth/logout ────────────────────────────────────────────────────
+
+app.post("/api/auth/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie("connect.sid");
+    res.json({ success: true });
+  });
+});
+
+// ── GET /api/auth/me ─────────────────────────────────────────────────────────
+
+app.get("/api/auth/me", async (req, res) => {
+  if (!req.session?.userId) return res.json({ user: null });
+  try {
+    const user = await dbGet("SELECT id, email, name FROM users WHERE id = ?", req.session.userId);
+    res.json({ user: user || null });
+  } catch {
+    res.json({ user: null });
+  }
+});
 
 // ── GET /api/workspaces ───────────────────────────────────────────────────────
 
-app.get("/api/workspaces", async (req, res) => {
+app.get("/api/workspaces", requireAuth, async (req, res) => {
   try {
     const workspaces = await dbAll(`
       SELECT w.*,
@@ -1077,7 +1203,7 @@ app.get("/api/workspaces", async (req, res) => {
 
 // ── POST /api/workspaces ──────────────────────────────────────────────────────
 
-app.post("/api/workspaces", async (req, res) => {
+app.post("/api/workspaces", requireAuth, async (req, res) => {
   try {
     const { name, industry, product_type } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: "Nom requis" });
@@ -1094,7 +1220,7 @@ app.post("/api/workspaces", async (req, res) => {
 
 // ── GET /api/workspaces/:slug ─────────────────────────────────────────────────
 
-app.get("/api/workspaces/:slug", async (req, res) => {
+app.get("/api/workspaces/:slug", requireAuth, async (req, res) => {
   try {
     const ws = await dbGet("SELECT * FROM workspaces WHERE slug = ?", req.params.slug);
     if (!ws) return res.status(404).json({ error: "Espace introuvable" });
@@ -1109,7 +1235,7 @@ app.get("/api/workspaces/:slug", async (req, res) => {
 
 // ── DELETE /api/workspaces/:slug ──────────────────────────────────────────────
 
-app.delete("/api/workspaces/:slug", async (req, res) => {
+app.delete("/api/workspaces/:slug", requireAuth, async (req, res) => {
   try {
     const ws = await dbGet("SELECT * FROM workspaces WHERE slug = ?", req.params.slug);
     if (!ws) return res.status(404).json({ error: "Espace introuvable" });
@@ -1132,7 +1258,7 @@ app.delete("/api/workspaces/:slug", async (req, res) => {
 
 // ── Workspace middleware — sets req.workspace for all /api/w/:slug/* routes ───
 
-app.use("/api/w/:slug", async (req, res, next) => {
+app.use("/api/w/:slug", requireAuth, async (req, res, next) => {
   try {
     const ws = await dbGet("SELECT * FROM workspaces WHERE slug = ?", req.params.slug);
     if (!ws) return res.status(404).json({ error: `Espace "${req.params.slug}" introuvable` });
@@ -3870,6 +3996,150 @@ Réponds UNIQUEMENT avec un JSON valide (sans markdown, sans \`\`\`) représenta
 // ─── Interpretation routes ────────────────────────────────────────────────────
 
 registerInterpretRoutes(app, { dbGet, dbAll, dbRun, anthropic, streamAnthropicSSE });
+
+// ─── Publication web (rapports publics) ───────────────────────────────────────
+
+// ── POST /api/w/:slug/reports/:id/publish ─ Publier un rapport sur le web ────
+
+app.post("/api/w/:slug/reports/:id/publish", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ws = req.workspace;
+    const report = await dbGet("SELECT * FROM reports WHERE id = ? AND workspace_id = ?", id, ws.id);
+    if (!report) return res.status(404).json({ error: "Rapport introuvable." });
+
+    const existing = await dbGet("SELECT * FROM published_reports WHERE report_id = ?", id);
+    if (existing) return res.json({ token: existing.token, alreadyPublished: true });
+
+    const token = uuidv4();
+    const pubId = uuidv4();
+    await dbRun(
+      "INSERT INTO published_reports (id, report_id, workspace_id, token, published_by) VALUES (?, ?, ?, ?, ?)",
+      pubId, id, ws.id, token, req.session.userId || null
+    );
+    res.status(201).json({ token });
+  } catch (err) {
+    console.error("[POST publish]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/w/:slug/reports/:id/publish ─ Dépublier ──────────────────────
+
+app.delete("/api/w/:slug/reports/:id/publish", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ws = req.workspace;
+    const pub = await dbGet("SELECT * FROM published_reports WHERE report_id = ? AND workspace_id = ?", id, ws.id);
+    if (!pub) return res.status(404).json({ error: "Ce rapport n'est pas publié." });
+    await dbRun("DELETE FROM report_comments WHERE published_report_id = ?", pub.id);
+    await dbRun("DELETE FROM published_reports WHERE id = ?", pub.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[DELETE publish]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/w/:slug/reports/:id/publish ─ Statut de publication ─────────────
+
+app.get("/api/w/:slug/reports/:id/publish", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pub = await dbGet("SELECT * FROM published_reports WHERE report_id = ? AND workspace_id = ?", id, req.workspace.id);
+    if (!pub) return res.json({ published: false });
+    const commentCount = (await dbGet("SELECT COUNT(*) AS cnt FROM report_comments WHERE published_report_id = ?", pub.id)).cnt;
+    res.json({ published: true, token: pub.token, commentCount, createdAt: pub.created_at });
+  } catch (err) {
+    console.error("[GET publish status]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/w/:slug/reports/:id/comments ─ Commentaires (vue authentifiée) ──
+
+app.get("/api/w/:slug/reports/:id/comments", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pub = await dbGet("SELECT * FROM published_reports WHERE report_id = ? AND workspace_id = ?", id, req.workspace.id);
+    if (!pub) return res.json({ comments: [] });
+    const comments = await dbAll(
+      "SELECT * FROM report_comments WHERE published_report_id = ? ORDER BY created_at DESC", pub.id
+    );
+    res.json({ comments });
+  } catch (err) {
+    console.error("[GET comments]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/w/:slug/published-reports ─ Liste des rapports publiés ──────────
+
+app.get("/api/w/:slug/published-reports", async (req, res) => {
+  try {
+    const ws = req.workspace;
+    const pubs = await dbAll(`
+      SELECT pr.*, r.title, r.subtitle, r.icon, r.color, r.created_at AS report_created_at,
+        (SELECT COUNT(*) FROM report_comments WHERE published_report_id = pr.id) AS comment_count
+      FROM published_reports pr
+      JOIN reports r ON r.id = pr.report_id
+      WHERE pr.workspace_id = ?
+      ORDER BY pr.created_at DESC
+    `, ws.id);
+    res.json({ publishedReports: pubs });
+  } catch (err) {
+    console.error("[GET published-reports]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Routes publiques (pas d'auth) ───────────────────────────────────────────
+
+// ── GET /api/pub/:token ─ Rapport public (sans authentification) ─────────────
+
+app.get("/api/pub/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const pub = await dbGet("SELECT * FROM published_reports WHERE token = ?", token);
+    if (!pub) return res.status(404).json({ error: "Rapport introuvable ou non publié." });
+
+    const row = await dbGet("SELECT * FROM reports WHERE id = ?", pub.report_id);
+    if (!row) return res.status(404).json({ error: "Rapport supprimé." });
+
+    const report = deserializeReport(row);
+    const comments = await dbAll(
+      "SELECT * FROM report_comments WHERE published_report_id = ? ORDER BY created_at ASC", pub.id
+    );
+    res.json({ report, comments, publishedAt: pub.created_at });
+  } catch (err) {
+    console.error("[GET /api/pub/:token]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/pub/:token/comments ─ Ajouter un commentaire (sans auth) ──────
+
+app.post("/api/pub/:token/comments", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { sectionIndex, authorName, body } = req.body;
+    if (!body || !body.trim()) return res.status(400).json({ error: "Le commentaire ne peut pas être vide." });
+
+    const pub = await dbGet("SELECT * FROM published_reports WHERE token = ?", token);
+    if (!pub) return res.status(404).json({ error: "Rapport introuvable ou non publié." });
+
+    const id = uuidv4();
+    await dbRun(
+      "INSERT INTO report_comments (id, published_report_id, section_index, author_name, body) VALUES (?, ?, ?, ?, ?)",
+      id, pub.id, sectionIndex != null ? sectionIndex : null, authorName?.trim() || null, body.trim()
+    );
+    const comment = await dbGet("SELECT * FROM report_comments WHERE id = ?", id);
+    res.status(201).json({ comment });
+  } catch (err) {
+    console.error("[POST /api/pub/:token/comments]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ─── API 404 handler (only for /api/* routes) ────────────────────────────────
 

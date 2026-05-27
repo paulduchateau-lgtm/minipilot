@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Star, StarOff, Download, Loader2, ArrowUpRight, ArrowDownRight, BarChart3, Activity, TrendingUp, Heart, AlertTriangle, Users, FileText, Calendar, Clock, Eye, Stethoscope, Building2, MessageSquare, ChevronDown } from "lucide-react";
+import { Star, StarOff, Download, Loader2, ArrowUpRight, ArrowDownRight, BarChart3, Activity, TrendingUp, Heart, AlertTriangle, Users, FileText, Calendar, Clock, Eye, Stethoscope, Building2, MessageSquare, ChevronDown, Globe, Link2, Copy, Check } from "lucide-react";
 import RenderSection from "./RenderSection";
 import ReportFeedbackPanel from "./ReportFeedbackPanel";
 import ReportVersionPanel from "./ReportVersionPanel";
@@ -51,6 +51,56 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [compareVersionNum, setCompareVersionNum] = useState(null);
+
+  // ── Publication state ──────────────────────────────────────────
+  const [publishStatus, setPublishStatus] = useState(null);
+  const [publishLoading, setPublishLoading] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [reportComments, setReportComments] = useState([]);
+
+  useEffect(() => {
+    if (!report?.id || !api?.getPublishStatus) return;
+    api.getPublishStatus(report.id).then(setPublishStatus).catch(() => {});
+  }, [report?.id]);
+
+  const handlePublish = async () => {
+    setPublishLoading(true);
+    try {
+      const result = await api.publishReport(report.id);
+      setPublishStatus({ published: true, token: result.token, commentCount: 0 });
+    } catch {}
+    setPublishLoading(false);
+  };
+
+  const handleUnpublish = async () => {
+    setPublishLoading(true);
+    try {
+      await api.unpublishReport(report.id);
+      setPublishStatus({ published: false });
+      setReportComments([]);
+    } catch {}
+    setPublishLoading(false);
+  };
+
+  const handleCopyLink = () => {
+    if (!publishStatus?.token) return;
+    const url = `${window.location.origin}/pub/${publishStatus.token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    });
+  };
+
+  const handleToggleComments = async () => {
+    if (!commentsOpen && publishStatus?.published) {
+      try {
+        const result = await api.getReportComments(report.id);
+        setReportComments(result.comments || []);
+      } catch {}
+    }
+    setCommentsOpen(!commentsOpen);
+  };
 
   // ── Interpretation state ──────────────────────────────────────────
   const [interpretations, setInterpretations] = useState({});       // { [sectionIndex]: { faits, alertes, actions } }
@@ -296,8 +346,117 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
             {pdfLoading ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Download size={14} />}
             {pdfLoading ? "Génération…" : "PDF"}
           </button>
+
+          {/* Publish / Unpublish button */}
+          {publishStatus?.published ? (
+            <div style={{ display: "flex", gap: 4 }}>
+              <button
+                onClick={handleCopyLink}
+                style={{
+                  background: "var(--mp-bg-card)", border: "1px solid var(--mp-accent)",
+                  borderRadius: "var(--radius-sm)", padding: "8px 14px", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 6,
+                  color: "var(--mp-accent)", fontSize: 12, fontFamily: "var(--font-body)",
+                }}
+                title="Copier le lien public"
+              >
+                {linkCopied ? <Check size={14} /> : <Copy size={14} />}
+                {linkCopied ? "Copié !" : "Lien"}
+              </button>
+              {publishStatus.commentCount > 0 && (
+                <button
+                  onClick={handleToggleComments}
+                  style={{
+                    background: "var(--mp-bg-card)", border: "1px solid var(--mp-border)",
+                    borderRadius: "var(--radius-sm)", padding: "8px 10px", cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 4,
+                    color: "var(--mp-text-muted)", fontSize: 12, fontFamily: "var(--font-body)",
+                  }}
+                  title="Voir les commentaires"
+                >
+                  <MessageSquare size={14} />
+                  {publishStatus.commentCount}
+                </button>
+              )}
+              <button
+                onClick={handleUnpublish}
+                disabled={publishLoading}
+                style={{
+                  background: "var(--mp-bg-card)", border: "1px solid var(--mp-border)",
+                  borderRadius: "var(--radius-sm)", padding: "8px 10px", cursor: "pointer",
+                  color: "var(--mp-text-muted)", fontSize: 12, fontFamily: "var(--font-body)",
+                  opacity: publishLoading ? 0.6 : 1,
+                }}
+                title="Dépublier"
+              >
+                <Globe size={14} />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handlePublish}
+              disabled={publishLoading}
+              style={{
+                background: "var(--mp-bg-card)", border: "1px solid var(--mp-border)",
+                borderRadius: "var(--radius-sm)", padding: "8px 14px",
+                cursor: publishLoading ? "wait" : "pointer",
+                display: "flex", alignItems: "center", gap: 6,
+                color: "var(--mp-text-muted)", fontSize: 12, fontFamily: "var(--font-body)",
+                opacity: publishLoading ? 0.6 : 1,
+              }}
+            >
+              {publishLoading ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Globe size={14} />}
+              Publier sur le web
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Published report comments panel */}
+      {commentsOpen && reportComments.length > 0 && (
+        <div style={{
+          background: "var(--mp-bg-card)", border: "1px solid var(--mp-border)",
+          borderRadius: "var(--radius-md)", padding: 16, marginBottom: 20,
+        }}>
+          <h3 style={{
+            fontSize: 13, fontWeight: 500, marginBottom: 12,
+            display: "flex", alignItems: "center", gap: 6,
+            color: "var(--mp-text-muted)",
+          }}>
+            <MessageSquare size={14} /> Commentaires des visiteurs ({reportComments.length})
+          </h3>
+          {reportComments.map(c => (
+            <div key={c.id} style={{
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid var(--mp-border)",
+              borderRadius: "var(--radius-sm)", padding: "10px 14px",
+              marginBottom: 8,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontSize: 12, color: "var(--mp-text-muted)", fontWeight: 500 }}>
+                  {c.author_name || "Anonyme"}
+                  {c.section_index != null && (
+                    <span style={{
+                      marginLeft: 8, fontSize: 10,
+                      fontFamily: "var(--font-data)", textTransform: "uppercase",
+                      letterSpacing: "0.1em", color: "var(--mp-accent)",
+                    }}>Section {c.section_index + 1}</span>
+                  )}
+                </span>
+                <span style={{
+                  fontSize: 10, fontFamily: "var(--font-data)",
+                  color: "var(--mp-text-muted)",
+                }}>
+                  {new Date(c.created_at).toLocaleDateString("fr-FR", {
+                    day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+                  })}
+                </span>
+              </div>
+              <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5 }}>{c.body}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Compare mode or normal report content */}
       {compareMode ? (

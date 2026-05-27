@@ -1,7 +1,10 @@
-import { Star, BookOpen, FileText, MessageSquare, Activity, Loader2, FileUp } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Star, BookOpen, FileText, MessageSquare, Activity, Loader2, FileUp, Globe, Copy, Check, ExternalLink } from "lucide-react";
 import ReportCard from "./ReportCard";
+import { useWorkspaceApi } from "../lib/WorkspaceContext";
 
 export default function DashboardPage({ reports, reportsLoading, toggleStar, trashReport, openReport, goToChat, goToImport }) {
+  const api = useWorkspaceApi();
   const sharedReports = reports.shared || [];
   const allPrivate = reports.private || [];
   const favoriteReports = allPrivate.filter(r => r.starred);
@@ -74,6 +77,9 @@ export default function DashboardPage({ reports, reportsLoading, toggleStar, tra
           ))}
         </div>
       )}
+
+      {/* Published reports section */}
+      <PublishedReportsSection api={api} openReport={openReport} />
 
       {/* Loading */}
       {reportsLoading && (
@@ -184,6 +190,109 @@ function SectionHeader({ icon, label, count }) {
         ({count})
       </span>
     </h2>
+  );
+}
+
+function PublishedReportsSection({ api, openReport }) {
+  const [pubs, setPubs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [copiedToken, setCopiedToken] = useState(null);
+
+  useEffect(() => {
+    if (!api?.getPublishedReports) { setLoading(false); return; }
+    api.getPublishedReports()
+      .then(d => setPubs(d.publishedReports || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [api]);
+
+  if (loading || pubs.length === 0) return null;
+
+  const handleCopy = (token) => {
+    const url = `${window.location.origin}/pub/${token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(null), 2000);
+    });
+  };
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <SectionHeader
+        icon={<Globe size={15} color="var(--color-green, #A5D900)" />}
+        label="Rapports publiés sur le web"
+        count={pubs.length}
+      />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
+        {pubs.map(pub => (
+          <div key={pub.id} style={{
+            background: "var(--mp-bg-card)", border: "1px solid var(--mp-border)",
+            borderRadius: "var(--radius-md)", padding: "16px 20px",
+            cursor: "pointer",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }} onClick={() => openReport(pub.report_id)}>
+                <h4 style={{ fontSize: 14, fontWeight: 500, margin: "0 0 4px" }}>{pub.title}</h4>
+                {pub.subtitle && (
+                  <p style={{ fontSize: 12, color: "var(--mp-text-muted)", margin: 0 }}>{pub.subtitle}</p>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                {pub.comment_count > 0 && (
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", gap: 3,
+                    fontSize: 11, color: "var(--mp-accent)",
+                    fontFamily: "var(--font-data)",
+                  }}>
+                    <MessageSquare size={12} /> {pub.comment_count}
+                  </span>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleCopy(pub.token); }}
+                  style={{
+                    background: "none", border: "1px solid var(--mp-border)",
+                    borderRadius: "var(--radius-sm)", padding: "4px 8px",
+                    cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                    color: copiedToken === pub.token ? "var(--mp-accent)" : "var(--mp-text-muted)",
+                    fontSize: 11, fontFamily: "var(--font-body)",
+                  }}
+                  title="Copier le lien public"
+                >
+                  {copiedToken === pub.token ? <Check size={12} /> : <Copy size={12} />}
+                  {copiedToken === pub.token ? "Copié" : "Lien"}
+                </button>
+                <a
+                  href={`/pub/${pub.token}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    background: "none", border: "1px solid var(--mp-border)",
+                    borderRadius: "var(--radius-sm)", padding: "4px 8px",
+                    display: "flex", alignItems: "center",
+                    color: "var(--mp-text-muted)", textDecoration: "none",
+                  }}
+                  title="Ouvrir le rapport public"
+                >
+                  <ExternalLink size={12} />
+                </a>
+              </div>
+            </div>
+            <div style={{
+              marginTop: 8, fontSize: 10,
+              fontFamily: "var(--font-data)",
+              color: "var(--mp-text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+            }}>
+              Publié le {new Date(pub.created_at).toLocaleDateString("fr-FR", {
+                day: "numeric", month: "long", year: "numeric",
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { X, LayoutDashboard, MessageSquare, Settings, Trash2, Menu, Sun, Moon, RotateCcw, Wifi, WifiOff, Loader2, ArrowLeft, FilePenLine, Clock } from "lucide-react";
+import { X, LayoutDashboard, MessageSquare, Settings, Trash2, Menu, Sun, Moon, RotateCcw, Wifi, WifiOff, Loader2, ArrowLeft, FilePenLine, Clock, LogOut } from "lucide-react";
 import { useTheme } from "../data/theme";
 import { getAiMode, setAiMode } from "../lib/api";
 import { useWorkspace } from "../lib/WorkspaceContext";
 import { getProductLabel } from "../lib/productLabel";
+import { useAuth } from "../lib/AuthContext";
 
 const NAV_ITEMS = [
   { id: "dashboard", Icon: LayoutDashboard, label: "Tableau de bord" },
@@ -108,6 +109,7 @@ export default function Sidebar({ page, setPage, sidebarOpen, setSidebarOpen, on
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
   const { workspace } = useWorkspace();
+  const { user, logout } = useAuth();
   const { prefix, full } = getProductLabel(workspace);
   if (!sidebarOpen) {
     return (
@@ -297,6 +299,29 @@ export default function Sidebar({ page, setPage, sidebarOpen, setSidebarOpen, on
           <span>{theme === "dark" ? "Mode clair" : "Mode sombre"}</span>
         </button>
       </div>
+
+      {/* Logout */}
+      {user && (
+        <div style={{ padding: "0 8px" }}>
+          <button
+            onClick={logout}
+            onMouseEnter={e => e.currentTarget.style.background = "var(--mp-nav-hover)"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            style={{
+              width: "100%", display: "flex", alignItems: "center",
+              gap: 10, padding: "9px 12px",
+              background: "transparent",
+              border: "none", borderRadius: "var(--radius-sm)",
+              cursor: "pointer", color: "var(--mp-text-muted)",
+              fontSize: 12, fontFamily: "var(--font-body)",
+              transition: "background 200ms ease",
+            }}
+          >
+            <LogOut size={13} />
+            <span>{user.email}</span>
+          </button>
+        </div>
+      )}
 
       {/* DB Status */}
       <div style={{
