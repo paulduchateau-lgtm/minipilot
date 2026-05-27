@@ -6,6 +6,8 @@ import {
 } from "recharts";
 import { ChevronDown, ChevronUp, Table as TableIcon, BarChart3, MessageSquare, Database, Download, Eye } from "lucide-react";
 import { useChartTheme } from "../data/theme";
+import InterpretButton from "./Interpretation/InterpretButton";
+import InterpretationPanel from "./Interpretation/InterpretationPanel";
 
 function formatValue(val, fmt) {
   if (fmt === "money") return typeof val === "number" ? (val >= 1e6 ? `${(val/1e6).toFixed(1)}M €` : val >= 1000 ? `${Math.round(val/1000)}k €` : `${val} €`) : val;
@@ -335,7 +337,7 @@ function DataInspector({ section }) {
   );
 }
 
-export default function RenderSection({ section, feedbackMode, sectionFeedback, onSectionFeedback, sectionIndex }) {
+export default function RenderSection({ section, feedbackMode, sectionFeedback, onSectionFeedback, sectionIndex, interpretation, interpretLoading, interpretStreamText, interpretError, onInterpret, onCloseInterpretation }) {
   const [expanded, setExpanded] = useState(true);
   const [annotating, setAnnotating] = useState(false);
   const ct = useChartTheme();
@@ -541,6 +543,15 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
           </div>
           {expanded ? <ChevronUp size={16} color="var(--mp-text-muted)" /> : <ChevronDown size={16} color="var(--mp-text-muted)" />}
         </button>
+        {onInterpret && (
+          <div style={{ paddingRight: 4, display: "flex", alignItems: "center" }}>
+            <InterpretButton
+              onInterpret={() => onInterpret(sectionIndex)}
+              loading={interpretLoading}
+              hasInterpretation={!!interpretation}
+            />
+          </div>
+        )}
         {feedbackMode && (
           <button
             onClick={() => setAnnotating(!annotating)}
@@ -576,6 +587,15 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
           )}
           <DataInspector section={section} />
           {renderChart()}
+          {(interpretation || interpretLoading || interpretError) && (
+            <InterpretationPanel
+              interpretation={interpretation}
+              loading={interpretLoading}
+              streamingText={interpretStreamText}
+              error={interpretError}
+              onClose={() => onCloseInterpretation && onCloseInterpretation(sectionIndex)}
+            />
+          )}
           {feedbackMode && annotating && (
             <textarea
               value={sectionFeedback || ""}

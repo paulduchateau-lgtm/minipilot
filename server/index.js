@@ -19,6 +19,7 @@ import mammoth from "mammoth";
 import { initScheduler, registerSchedule, unregisterSchedule, executeSchedule, buildCronExpression } from './scheduler.js';
 import { materialize, getMaterializedContext } from './materializer.js';
 import { streamAnthropicSSE } from './stream.js';
+import { registerInterpretRoutes } from './interpret.js';
 import { executeReportSpec } from './query-builder.js';
 import cron from 'node-cron';
 
@@ -3849,6 +3850,10 @@ if (!IS_VERCEL && fs.existsSync(STATIC_DIR)) {
     }
   });
 }
+
+// ─── Interpretation routes ────────────────────────────────────────────────────
+
+registerInterpretRoutes(app, { dbGet, dbAll, dbRun, anthropic, streamAnthropicSSE });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 

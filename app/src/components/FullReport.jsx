@@ -16,6 +16,35 @@ function getIcon(iconName) {
   return ICON_MAP[iconName] || BarChart3;
 }
 
+// ── Parse 6-section interpretation from LLM text ───────────────────
+const SECTION_KEYS = [
+  { key: "factuelle",       pattern: /##?\s*(?:1[\.\):]?\s*)?Lecture factuelle/i },
+  { key: "analytique",      pattern: /##?\s*(?:2[\.\):]?\s*)?Lecture analytique/i },
+  { key: "comparee",        pattern: /##?\s*(?:3[\.\):]?\s*)?Lecture compar[ée]/i },
+  { key: "signaux",         pattern: /##?\s*(?:4[\.\):]?\s*)?Signaux faibles/i },
+  { key: "recommandations", pattern: /##?\s*(?:5[\.\):]?\s*)?Recommandations/i },
+  { key: "questions",       pattern: /##?\s*(?:6[\.\):]?\s*)?Questions [àa] creuser/i },
+];
+
+function parseInterpretation(text) {
+  if (!text) return null;
+  const result = {};
+  const positions = [];
+  for (const { key, pattern } of SECTION_KEYS) {
+    const match = text.match(pattern);
+    if (match) positions.push({ key, index: match.index, len: match[0].length });
+  }
+  positions.sort((a, b) => a.index - b.index);
+  for (let i = 0; i < positions.length; i++) {
+    const start = positions[i].index + positions[i].len;
+    const end = i + 1 < positions.length ? positions[i + 1].index : text.length;
+    result[positions[i].key] = text.slice(start, end).replace(/^\s*\n/, "").trim();
+  }
+  // If no sections found, put everything in factuelle
+  if (Object.keys(result).length === 0) result.factuelle = text.trim();
+  return result;
+}
+
 export default function FullReport({ report, isFav, onToggleFav, api, onReportUpdated }) {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -25,6 +54,60 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [compareVersionNum, setCompareVersionNum] = useState(null);
+
+  // ── Interpretation state ──────────────────────────────────────────
+  const [interpretations, setInterpretations] = useState({});       // { [sectionIndex]: { factuelle, analytique, ... } }
+  const [interpretLoading, setInterpretLoading] = useState({});     // { [sectionIndex]: true/false }
+  const [interpretStream, setInterpretStream] = useState({});       // { [sectionIndex]: "streaming text..." }
+  const [interpretErrors, setInterpretErrors] = useState({});       // { [sectionIndex]: "error msg" }
+
+  const handleInterpret = async (sectionIndex) => {
+    const sections = typeof report.sections === "string" ? JSON.parse(report.sections) : (report.sections || []);
+    const section = sections[sectionIndex];
+    if (!section) return;
+
+    // If already has interpretation, toggle visibility (close it)
+    if (interpretations[sectionIndex]) {
+      setInterpretations(prev => { const n = { ...prev }; delete n[sectionIndex]; return n; });
+      return;
+    }
+
+    setInterpretLoading(prev => ({ ...prev, [sectionIndex]: true }));
+    setInterpretErrors(prev => { const n = { ...prev }; delete n[sectionIndex]; return n; });
+    setInterpretStream(prev => ({ ...prev, [sectionIndex]: "" }));
+
+    try {
+      const chartMeta = {
+        title: section.title || "",
+        type: section.type || "unknown",
+        insight: section.insight || "",
+        config: section.config || {},
+      };
+      const chartData = section.data || section.data_sets || [];
+
+      const fullText = await api.interpretSection(
+        sectionIndex,
+        chartData,
+        chartMeta,
+        report.id,
+        (streamText) => setInterpretStream(prev => ({ ...prev, [sectionIndex]: streamText })),
+      );
+
+      // Parse the 6-section response
+      const parsed = parseInterpretation(fullText);
+      setInterpretations(prev => ({ ...prev, [sectionIndex]: parsed }));
+    } catch (err) {
+      setInterpretErrors(prev => ({ ...prev, [sectionIndex]: err.message || "Erreur lors de l'interprétation" }));
+    } finally {
+      setInterpretLoading(prev => ({ ...prev, [sectionIndex]: false }));
+      setInterpretStream(prev => { const n = { ...prev }; delete n[sectionIndex]; return n; });
+    }
+  };
+
+  const handleCloseInterpretation = (sectionIndex) => {
+    setInterpretations(prev => { const n = { ...prev }; delete n[sectionIndex]; return n; });
+    setInterpretErrors(prev => { const n = { ...prev }; delete n[sectionIndex]; return n; });
+  };
 
   const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -166,8 +249,8 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
               if (pdfLoading) return;
               setPdfLoading(true);
               try {
-                const { generatePdf } = await import("../lib/generatePdf.js");
-                await generatePdf(report);
+                const { generateTheForkPdf } = await import("../lib/generateTheForkPdf.js");
+                await generateTheForkPdf(report, interpretations);
               } catch (err) {
                 console.error("[PDF] generation failed:", err);
               } finally {
@@ -279,6 +362,12 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
               sectionFeedback={sectionFeedbacks[i] || ""}
               onSectionFeedback={(idx, text) => setSectionFeedbacks(prev => ({ ...prev, [idx]: text }))}
               sectionIndex={i}
+              interpretation={interpretations[i] || null}
+              interpretLoading={!!interpretLoading[i]}
+              interpretStreamText={interpretStream[i] || null}
+              interpretError={interpretErrors[i] || null}
+              onInterpret={handleInterpret}
+              onCloseInterpretation={handleCloseInterpretation}
             />
           ))}
         </>

@@ -332,5 +332,58 @@ export function createWorkspaceApi(slug) {
       });
       return res.json();
     },
+
+    // ── Interpretation ──────────────────────────────────────────────
+    interpretSection: (sectionIndex, chartData, chartMeta, reportId, onChunk) => {
+      return new Promise((resolve, reject) => {
+        fetch(`${BASE}/ai/interpret`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sectionIndex, chartData, chartMeta, reportId }),
+        })
+          .then((res) => {
+            if (!res.ok) return res.json().then((e) => reject(new Error(e.error || "Erreur")));
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let fullText = "";
+
+            function read() {
+              reader.read().then(({ done, value }) => {
+                if (done) return resolve(fullText);
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+                for (const line of lines) {
+                  if (line.startsWith("data: ")) {
+                    try {
+                      const parsed = JSON.parse(line.slice(6));
+                      if (parsed.type === "token" && parsed.text) {
+                        fullText += parsed.text;
+                        if (onChunk) onChunk(fullText);
+                      } else if (parsed.type === "done") {
+                        fullText = parsed.text || fullText;
+                        return resolve(fullText);
+                      } else if (parsed.type === "error") {
+                        return reject(new Error(parsed.message || "Erreur IA"));
+                      }
+                    } catch {
+                      // non-JSON SSE line, skip
+                    }
+                  }
+                }
+                read();
+              }).catch(reject);
+            }
+            read();
+          })
+          .catch(reject);
+      });
+    },
+
+    getInterpretations: async (reportId) => {
+      const res = await fetch(`${BASE}/interpretations/${reportId}`);
+      return res.json();
+    },
   };
 }
