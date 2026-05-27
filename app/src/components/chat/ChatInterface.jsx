@@ -5,12 +5,10 @@ import {
 } from "lucide-react";
 import { useWorkspaceApi } from "../../lib/WorkspaceContext";
 
-const DEFAULT_SUGGESTIONS = [
-  "Quels sont les risques avec la criticite la plus elevee ?",
-  "Quelle est la repartition des risques par niveau de criticite ?",
-  "Quelle direction concentre le plus de risques critiques ?",
-  "Quels risques critiques n'ont pas de plan d'action ?",
-  "Construis un dashboard COMEX synthetisant les risques majeurs",
+const FALLBACK_SUGGESTIONS = [
+  "Analyse les tendances principales de mes données",
+  "Quels sont les indicateurs clés à surveiller ?",
+  "Construis un dashboard de synthèse pour le COMEX",
 ];
 
 function TypingIndicator() {
@@ -155,8 +153,32 @@ export default function ChatInterface({ onOpenReport }) {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [savedReports, setSavedReports] = useState(new Set());
+  const [suggestions, setSuggestions] = useState(null); // null = loading, [] = failed
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
+
+  // ── Load dynamic suggestions from uploaded data ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await api.suggestReports();
+        if (cancelled) return;
+        if (result.suggestions?.length) {
+          // Extract short prompt from each suggestion's title + description
+          const prompts = result.suggestions.slice(0, 5).map(s => s.title);
+          // Add a synthesis prompt at the end
+          prompts.push("Construis un dashboard de synthèse pour le COMEX");
+          setSuggestions(prompts);
+        } else {
+          setSuggestions(FALLBACK_SUGGESTIONS);
+        }
+      } catch {
+        if (!cancelled) setSuggestions(FALLBACK_SUGGESTIONS);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -244,7 +266,7 @@ export default function ChatInterface({ onOpenReport }) {
                 fontSize: 13, color: "var(--mp-text-muted)",
                 maxWidth: 480, fontFamily: "var(--font-body)", lineHeight: 1.6,
               }}>
-                Decrivez votre besoin metier et Pilot genere un rapport complet avec KPIs, graphiques et tableaux.
+                Décrivez votre besoin et Pilot génère un rapport complet avec KPIs, graphiques et tableaux.
               </p>
             </div>
 
@@ -252,7 +274,11 @@ export default function ChatInterface({ onOpenReport }) {
               display: "flex", flexWrap: "wrap", gap: 8,
               justifyContent: "center", maxWidth: 640,
             }}>
-              {DEFAULT_SUGGESTIONS.map(q => (
+              {!suggestions ? (
+                <p style={{ fontSize: 12, color: "var(--mp-text-muted)", fontStyle: "italic" }}>
+                  Analyse de vos données en cours…
+                </p>
+              ) : suggestions.map(q => (
                 <button
                   key={q}
                   onClick={() => handleSend(q)}
