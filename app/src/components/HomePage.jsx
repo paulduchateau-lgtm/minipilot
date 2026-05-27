@@ -408,7 +408,7 @@ function CreateWorkspaceForm({ onSubmit, onCancel, loading }) {
   );
 }
 
-export default function HomePage() {
+export default function HomePage({ tenant = "default", basePath = "" }) {
   const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -418,12 +418,12 @@ export default function HomePage() {
 
   useEffect(() => {
     loadWorkspaces();
-  }, []);
+  }, [tenant]);
 
   const loadWorkspaces = async () => {
     setLoading(true);
     try {
-      const data = await listWorkspaces();
+      const data = await listWorkspaces(tenant);
       setWorkspaces(Array.isArray(data) ? data : (data.workspaces || []));
     } catch {
       setWorkspaces([]);
@@ -435,7 +435,7 @@ export default function HomePage() {
     setCreating(true);
     setError(null);
     try {
-      const result = await createWorkspace(name, industry);
+      const result = await createWorkspace(name, industry, tenant);
       if (result.error) {
         setError(result.error);
         setCreating(false);
@@ -443,7 +443,7 @@ export default function HomePage() {
       }
       const slug = result.slug || result.workspace?.slug;
       if (slug) {
-        navigate(`/${slug}`);
+        navigate(`${basePath}/${slug}`);
       } else {
         await loadWorkspaces();
         setShowForm(false);
@@ -464,7 +464,7 @@ export default function HomePage() {
   };
 
   const handleOpen = (slug) => {
-    navigate(`/${slug}`);
+    navigate(`${basePath}/${slug}`);
   };
 
   return (

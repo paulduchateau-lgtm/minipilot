@@ -19,7 +19,7 @@ function WorkspaceContent() {
   const navigate = useNavigate();
   const location = useLocation();
   const api = useWorkspaceApi();
-  const { workspace } = useWorkspace();
+  const { workspace, basePath } = useWorkspace();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [onboarded, setOnboarded] = useState(null);
@@ -192,6 +192,7 @@ function WorkspaceContent() {
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
         slug={slug}
+        basePath={basePath}
         onStartOnboarding={async () => {
           try { await api.resetOnboarding(); } catch {}
           setOnboarded(false);
@@ -296,10 +297,10 @@ function WorkspaceContent() {
   );
 }
 
-export default function WorkspaceShell() {
+export default function WorkspaceShell({ basePath = "" }) {
   const { slug } = useParams();
   return (
-    <WorkspaceProvider slug={slug}>
+    <WorkspaceProvider slug={slug} basePath={basePath}>
       <WorkspaceContent />
     </WorkspaceProvider>
   );

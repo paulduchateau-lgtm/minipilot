@@ -180,6 +180,7 @@ async function initDatabase() {
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       name TEXT,
+      role TEXT NOT NULL DEFAULT 'member',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -257,6 +258,9 @@ async function initDatabase() {
   try { await db.executeMultiple("ALTER TABLE reports ADD COLUMN current_version INTEGER DEFAULT 1"); } catch {}
   try { await db.executeMultiple("ALTER TABLE workspaces ADD COLUMN product_type TEXT DEFAULT 'pilot'"); } catch {}
   try { await db.executeMultiple("ALTER TABLE project_context ADD COLUMN expertise_prompt TEXT"); } catch {}
+  try { await db.executeMultiple("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member'"); } catch {}
+  try { await db.executeMultiple("ALTER TABLE users ADD COLUMN tenant TEXT"); } catch {}
+  try { await db.executeMultiple("ALTER TABLE workspaces ADD COLUMN tenant TEXT NOT NULL DEFAULT 'default'"); } catch {}
 
   // Backfill: if data exists but no workspaces, create a default workspace
   const wsCountRow = await dbGet("SELECT COUNT(*) AS cnt FROM workspaces");
@@ -281,20 +285,23 @@ async function initDatabase() {
 
   // ── Seed users ──────────────────────────────────────────────────────────────
   const seedUsers = [
-    { email: "paul.duchateau@lite-ops.com", password: "alleluia", name: "Paul Duchateau" },
-    { email: "nicolas.bazille@thefork.fr", password: "nb4zille33850rpz", name: "Nicolas Bazille" },
+    { email: "paul.duchateau@lite-ops.com", password: "alleluia", name: "Paul Duchateau", role: "admin", tenant: null },
+    { email: "nicolas.bazille@thefork.fr", password: "nb4zille33850rpz", name: "Nicolas Bazille", role: "member", tenant: "thefork" },
   ];
   for (const u of seedUsers) {
     const exists = await dbGet("SELECT id FROM users WHERE email = ?", u.email);
     const hash = await bcrypt.hash(u.password, 10);
     if (!exists) {
       const id = `user_${crypto.randomUUID()}`;
-      await dbRun("INSERT INTO users (id, email, password_hash, name) VALUES (?, ?, ?, ?)", id, u.email, hash, u.name);
+      await dbRun("INSERT INTO users (id, email, password_hash, name, role, tenant) VALUES (?, ?, ?, ?, ?, ?)", id, u.email, hash, u.name, u.role, u.tenant);
       console.log(`Seeded user: ${u.email}`);
     } else {
-      await dbRun("UPDATE users SET password_hash = ?, name = ? WHERE email = ?", hash, u.name, u.email);
+      await dbRun("UPDATE users SET password_hash = ?, name = ?, role = ?, tenant = ? WHERE email = ?", hash, u.name, u.role, u.tenant, u.email);
     }
   }
+
+  // ── Migrate direction-financiere to thefork tenant ─────────────────────────
+  await dbRun("UPDATE workspaces SET tenant = 'thefork' WHERE slug = 'direction-financiere' AND tenant = 'default'");
 }
 
 await initDatabase();
@@ -1173,7 +1180,8 @@ app.post("/api/auth/login", async (req, res) => {
     if (!valid) return res.status(401).json({ error: "Email ou mot de passe incorrect." });
 
     req.session.userId = user.id;
-    res.json({ user: { id: user.id, email: user.email, name: user.name } });
+    req.session.userRole = user.role;
+    res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role, tenant: user.tenant || null } });
   } catch (err) {
     console.error("[POST /api/auth/login]", err);
     res.status(500).json({ error: err.message });
@@ -1194,7 +1202,7 @@ app.post("/api/auth/logout", (req, res) => {
 app.get("/api/auth/me", async (req, res) => {
   if (!req.session?.userId) return res.json({ user: null });
   try {
-    const user = await dbGet("SELECT id, email, name FROM users WHERE id = ?", req.session.userId);
+    const user = await dbGet("SELECT id, email, name, role, tenant FROM users WHERE id = ?", req.session.userId);
     res.json({ user: user || null });
   } catch {
     res.json({ user: null });
@@ -1205,12 +1213,16 @@ app.get("/api/auth/me", async (req, res) => {
 
 app.get("/api/workspaces", requireAuth, async (req, res) => {
   try {
+    const tenant = req.query.tenant || "default";
+    const user = await dbGet("SELECT role, tenant FROM users WHERE id = ?", req.session.userId);
+    if (user?.role !== "admin" && user?.tenant && user.tenant !== tenant) {
+      return res.json({ workspaces: [] });
+    }
     const workspaces = await dbAll(`
       SELECT w.*,
         (SELECT COUNT(*) FROM uploaded_files WHERE workspace_id = w.id) AS files_count,
         (SELECT COUNT(*) FROM reports WHERE workspace_id = w.id) AS reports_count
-      FROM workspaces w ORDER BY w.updated_at DESC
-    `);
+      FROM workspaces w WHERE w.tenant = ? ORDER BY w.updated_at DESC`, tenant);
     res.json({ workspaces });
   } catch (err) {
     console.error("[GET /api/workspaces]", err);
@@ -1222,13 +1234,18 @@ app.get("/api/workspaces", requireAuth, async (req, res) => {
 
 app.post("/api/workspaces", requireAuth, async (req, res) => {
   try {
-    const { name, industry, product_type } = req.body;
+    const { name, industry, product_type, tenant } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: "Nom requis" });
+    const user = await dbGet("SELECT role, tenant FROM users WHERE id = ?", req.session.userId);
+    const wsTenant = tenant || user?.tenant || "default";
+    if (user?.role !== "admin" && user?.tenant && user.tenant !== wsTenant) {
+      return res.status(403).json({ error: "Vous ne pouvez créer un espace que dans votre tenant." });
+    }
     const id = uuidv4();
     const slug = await generateSlug(name.trim());
-    await dbRun("INSERT INTO workspaces (id, slug, name, industry, product_type) VALUES (?, ?, ?, ?, ?)",
-      id, slug, name.trim(), industry || null, product_type || "pilot");
-    res.status(201).json({ id, slug, name: name.trim(), product_type: product_type || "pilot" });
+    await dbRun("INSERT INTO workspaces (id, slug, name, industry, product_type, tenant) VALUES (?, ?, ?, ?, ?, ?)",
+      id, slug, name.trim(), industry || null, product_type || "pilot", wsTenant);
+    res.status(201).json({ id, slug, name: name.trim(), product_type: product_type || "pilot", tenant: wsTenant });
   } catch (err) {
     console.error("[POST /api/workspaces]", err);
     res.status(500).json({ error: err.message });
@@ -1279,6 +1296,10 @@ app.use("/api/w/:slug", requireAuth, async (req, res, next) => {
   try {
     const ws = await dbGet("SELECT * FROM workspaces WHERE slug = ?", req.params.slug);
     if (!ws) return res.status(404).json({ error: `Espace "${req.params.slug}" introuvable` });
+    const user = await dbGet("SELECT role, tenant FROM users WHERE id = ?", req.session.userId);
+    if (user?.role !== "admin" && user?.tenant && user.tenant !== ws.tenant) {
+      return res.status(403).json({ error: "Accès non autorisé à cet espace." });
+    }
     req.workspace = ws;
     next();
   } catch (err) {

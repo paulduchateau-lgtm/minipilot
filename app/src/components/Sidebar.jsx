@@ -105,7 +105,7 @@ function AiModeToggle() {
   );
 }
 
-export default function Sidebar({ page, setPage, sidebarOpen, setSidebarOpen, onStartOnboarding, slug }) {
+export default function Sidebar({ page, setPage, sidebarOpen, setSidebarOpen, onStartOnboarding, slug, basePath = "" }) {
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
   const { workspace } = useWorkspace();
@@ -258,7 +258,7 @@ export default function Sidebar({ page, setPage, sidebarOpen, setSidebarOpen, on
       {/* Back to home */}
       <div style={{ padding: "0 8px" }}>
         <button
-          onClick={() => navigate("/")}
+          onClick={() => navigate(basePath || "/")}
           onMouseEnter={e => e.currentTarget.style.background = "var(--mp-nav-hover)"}
           onMouseLeave={e => e.currentTarget.style.background = "transparent"}
           style={{

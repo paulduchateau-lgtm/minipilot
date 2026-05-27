@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "./data/theme";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
 import HomePage from "./components/HomePage";
@@ -23,6 +23,21 @@ function AuthGate({ children }) {
   return children;
 }
 
+function AuthenticatedRoutes() {
+  const { user } = useAuth();
+  if (user?.tenant === "thefork" && window.location.pathname === "/") {
+    return <Navigate to="/thefork" replace />;
+  }
+  return (
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/thefork" element={<HomePage tenant="thefork" basePath="/thefork" />} />
+      <Route path="/thefork/:slug/*" element={<WorkspaceShell basePath="/thefork" />} />
+      <Route path="/:slug/*" element={<WorkspaceShell />} />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -31,10 +46,7 @@ export default function App() {
           <Route path="/pub/:token" element={<PublicReportPage />} />
           <Route path="/*" element={
             <AuthGate>
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/:slug/*" element={<WorkspaceShell />} />
-              </Routes>
+              <AuthenticatedRoutes />
             </AuthGate>
           } />
         </Routes>

@@ -6,16 +6,16 @@ function apiFetch(url, opts = {}) {
 
 // ── Global (non-workspace) API functions ──────────────────────────────────
 
-export async function listWorkspaces() {
-  const res = await apiFetch(`${API_BASE}/workspaces`);
+export async function listWorkspaces(tenant = "default") {
+  const res = await apiFetch(`${API_BASE}/workspaces?tenant=${tenant}`);
   return res.json();
 }
 
-export async function createWorkspace(name, industry) {
+export async function createWorkspace(name, industry, tenant = "default") {
   const res = await apiFetch(`${API_BASE}/workspaces`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, industry }),
+    body: JSON.stringify({ name, industry, tenant }),
   });
   return res.json();
 }

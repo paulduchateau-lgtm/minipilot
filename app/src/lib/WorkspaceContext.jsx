@@ -4,7 +4,7 @@ import { createWorkspaceApi, getWorkspace } from "./api";
 
 const WorkspaceContext = createContext(null);
 
-export function WorkspaceProvider({ children, slug: propSlug }) {
+export function WorkspaceProvider({ children, slug: propSlug, basePath = "" }) {
   const params = useParams();
   const slug = propSlug || params.slug;
 
@@ -18,7 +18,7 @@ export function WorkspaceProvider({ children, slug: propSlug }) {
       .catch(() => setWorkspace(null));
   }, [slug]);
 
-  const value = useMemo(() => ({ slug, api, workspace }), [slug, api, workspace]);
+  const value = useMemo(() => ({ slug, api, workspace, basePath }), [slug, api, workspace, basePath]);
 
   return (
     <WorkspaceContext.Provider value={value}>
