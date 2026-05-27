@@ -16,7 +16,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Mistral } from "@mistralai/mistralai";
 import { v4 as uuidv4 } from "uuid";
 import bcrypt from "bcryptjs";
-import session from "express-session";
+import cookieSession from "cookie-session";
 import mammoth from "mammoth";
 import { initScheduler, registerSchedule, unregisterSchedule, executeSchedule, buildCronExpression } from './scheduler.js';
 import { materialize, getMaterializedContext } from './materializer.js';
@@ -548,16 +548,13 @@ app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 
 const SESSION_SECRET = process.env.SESSION_SECRET || "pilot-dev-secret-change-in-prod";
-app.use(session({
-  secret: SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    secure: IS_VERCEL,
-    sameSite: IS_VERCEL ? "none" : "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  },
+app.use(cookieSession({
+  name: "session",
+  keys: [SESSION_SECRET],
+  httpOnly: true,
+  secure: IS_VERCEL,
+  sameSite: IS_VERCEL ? "none" : "lax",
+  maxAge: 7 * 24 * 60 * 60 * 1000,
 }));
 
 // ─── Multer config ────────────────────────────────────────────────────────────
@@ -1194,10 +1191,8 @@ app.post("/api/auth/login", async (req, res) => {
 // ── POST /api/auth/logout ────────────────────────────────────────────────────
 
 app.post("/api/auth/logout", (req, res) => {
-  req.session.destroy(() => {
-    res.clearCookie("connect.sid");
-    res.json({ success: true });
-  });
+  req.session = null;
+  res.json({ success: true });
 });
 
 // ── GET /api/auth/me ─────────────────────────────────────────────────────────
