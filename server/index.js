@@ -258,9 +258,9 @@ async function initDatabase() {
   try { await db.executeMultiple("ALTER TABLE reports ADD COLUMN current_version INTEGER DEFAULT 1"); } catch {}
   try { await db.executeMultiple("ALTER TABLE workspaces ADD COLUMN product_type TEXT DEFAULT 'pilot'"); } catch {}
   try { await db.executeMultiple("ALTER TABLE project_context ADD COLUMN expertise_prompt TEXT"); } catch {}
-  try { await db.executeMultiple("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member'"); } catch {}
+  try { await db.executeMultiple("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'member'"); } catch {}
   try { await db.executeMultiple("ALTER TABLE users ADD COLUMN tenant TEXT"); } catch {}
-  try { await db.executeMultiple("ALTER TABLE workspaces ADD COLUMN tenant TEXT NOT NULL DEFAULT 'default'"); } catch {}
+  try { await db.executeMultiple("ALTER TABLE workspaces ADD COLUMN tenant TEXT DEFAULT 'default'"); } catch {}
 
   // Backfill: if data exists but no workspaces, create a default workspace
   const wsCountRow = await dbGet("SELECT COUNT(*) AS cnt FROM workspaces");
