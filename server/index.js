@@ -1696,6 +1696,14 @@ RÈGLES IMPORTANTES pour le format des sections :
 - type "table" : doit avoir columns: [{key, label, align?, fmt?, hl?}]
 - Les couleurs disponibles : "#C8FF3C" (lite), "#4A90B8" (signal), "#C45A32" (warm), "#D4A03A" (warning), "#3A8A4A" (success)
 
+RÈGLES CRITIQUES — DATES :
+- Les dates en axe X doivent TOUJOURS être des labels lisibles (ex: "Jan 2025", "Q1 2025", "Mars 2024"). JAMAIS de timestamps numériques.
+- Trier toujours les données chronologiquement quand l'axe X représente du temps.
+
+RÈGLES CRITIQUES — TABLEAUX :
+- Les tableaux doivent avoir MAXIMUM 15 lignes. Privilégier un Top 10 ou Top 15.
+- Ne jamais générer un tableau de plus de 15 lignes sauf demande explicite de l'utilisateur.
+
 Réponds UNIQUEMENT avec un JSON valide, sans markdown :
 {
   "id": "report_<uuid>",
@@ -1852,6 +1860,15 @@ INSTRUCTIONS :
       try {
         reportData = extracted.json;
         reportData.id = reportData.id || `report_${uuidv4()}`;
+
+        // ── Post-processing: cap table rows at 15 ──
+        if (reportData.sections) {
+          for (const section of reportData.sections) {
+            if (section.type === "table" && Array.isArray(section.data) && section.data.length > 15) {
+              section.data = section.data.slice(0, 15);
+            }
+          }
+        }
 
         // Persist the report
         await dbRun(`
@@ -2707,6 +2724,17 @@ REGLES pour les sections :
 - type "table" : doit avoir columns: [{key, label, align?, fmt?, hl?}]
 - Couleurs : "#C8FF3C" (lite), "#4A90B8" (signal), "#C45A32" (warm), "#D4A03A" (warning), "#3A8A4A" (success)
 
+REGLES CRITIQUES — DATES :
+- Si le groupBy porte sur une colonne de date (mois, trimestre, année, semaine...), ajoute "dateGroupBy": true dans la section.
+- Les dates en axe X doivent TOUJOURS rester des labels lisibles (ex: "Jan 2025", "Q1 2025", "2024-03"). JAMAIS de timestamps numériques ou d'epoch.
+- Si la colonne source est une date ISO (YYYY-MM-DD), specifie "dateFormat": "month" ou "quarter" ou "year" selon le niveau de regroupement voulu.
+- Trie toujours les données chronologiquement quand l'axe X est temporel.
+
+REGLES CRITIQUES — TABLEAUX :
+- Les sections de type "table" doivent avoir MAXIMUM 15 lignes. Privilegier un Top 10 ou Top 15 avec tri pertinent.
+- Si l'utilisateur demande explicitement plus de lignes, tu peux aller jusqu'a 30 maximum.
+- Un tableau avec trop de lignes est inutile : synthetise, agrege ou filtre les donnees.
+
 Reponds UNIQUEMENT avec un JSON valide, sans markdown :
 {
   "id": "report_<uuid>",
@@ -3079,6 +3107,16 @@ TYPES DE SECTIONS DISPONIBLES :
 
 COULEURS : utilise "#4A90B8" (bleu signal), "#C45A32" (rouge alerte), "#D4A03A" (jaune warning), "#3A8A4A" (vert), "#B0D838" (vert accent).
 
+REGLES CRITIQUES — DATES :
+- Les dates en axe X des graphiques doivent TOUJOURS etre des labels lisibles (ex: "Jan 2025", "Q1 2025", "Mars 2024"). JAMAIS de timestamps numeriques ou d'epoch.
+- Si une colonne contient des dates ISO (2024-03-15), reformate-les en labels humains avant de les mettre dans data[].
+- Trie TOUJOURS les données chronologiquement quand l'axe X represente du temps.
+
+REGLES CRITIQUES — TABLEAUX :
+- Les tableaux doivent avoir MAXIMUM 15 lignes. Privilegie un Top 10 ou Top 15 trie par pertinence.
+- Ne genere JAMAIS un tableau de plus de 15 lignes sauf si l'utilisateur le demande explicitement.
+- Un tableau trop long est inutile : synthetise, agrege ou filtre les donnees pour garder l'essentiel.
+
 RÈGLE CRITIQUE SUR LE FORMAT DE SORTIE :
 - Tu DOIS TOUJOURS envelopper le JSON du rapport entre les balises <REPORT_DATA> et </REPORT_DATA>.
 - NE PAS utiliser de bloc markdown \`\`\`json. Utilise UNIQUEMENT les balises <REPORT_DATA>.
@@ -3111,6 +3149,16 @@ RÈGLE CRITIQUE SUR LE FORMAT DE SORTIE :
         reportData = extracted.json;
         reportData.id = reportData.id || `report_${uuidv4()}`;
         cleanResponse = extracted.cleanText;
+
+        // ── Post-processing: cap table rows at 15 ──
+        if (reportData.sections) {
+          for (const section of reportData.sections) {
+            if (section.type === "table" && Array.isArray(section.data) && section.data.length > 15) {
+              section.data = section.data.slice(0, 15);
+            }
+          }
+        }
+
         await dbRun(`
           INSERT OR REPLACE INTO reports (id, title, subtitle, objective, color, icon, kpis, sections, shared, starred, source, workspace_id)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'chat', ?)
@@ -3325,6 +3373,15 @@ Génère une version améliorée. Conserve la structure JSON exacte. Réponds UN
     if (!extracted) return res.status(422).json({ error: "L'IA n'a pas retourné un JSON valide.", raw: aiResult.text });
 
     const improved = { ...extracted.json, id: currentReport.id };
+
+    // ── Post-processing: cap table rows at 15 ──
+    if (improved.sections) {
+      for (const section of improved.sections) {
+        if (section.type === "table" && Array.isArray(section.data) && section.data.length > 15) {
+          section.data = section.data.slice(0, 15);
+        }
+      }
+    }
 
     // Enrich sections with data source metadata
     await enrichReportSources(improved, ws.id);

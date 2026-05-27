@@ -69,8 +69,34 @@ async function computeSection(dbAll, workspaceId, spec) {
     // Simple aggregation (no groupby)
     data = computeAggregates(rows, valueColumns);
   } else {
-    // Table type — return top rows
-    data = rows.slice(0, 50);
+    // Table type — return top rows, capped at 15
+    data = rows.slice(0, 15);
+  }
+
+  // ── Date detection + formatting on groupBy column ──
+  if (groupBy && data.length > 0) {
+    const dateType = spec.dateGroupBy ? detectDateColumn(rows, groupBy) : detectDateColumn(rows, groupBy);
+    if (dateType) {
+      const granularity = spec.dateFormat || "month";
+
+      // Format date labels and add sort key
+      data = data.map(row => ({
+        ...row,
+        _ts: toTimestamp(row[groupBy], dateType),
+        [groupBy]: formatDateLabel(row[groupBy], dateType, granularity),
+      }));
+
+      // Sort chronologically
+      data.sort((a, b) => a._ts - b._ts);
+
+      // Remove internal sort key
+      data = data.map(({ _ts, ...rest }) => rest);
+    }
+  }
+
+  // ── Table row cap: max 15 rows unless spec says otherwise ──
+  if ((type === "table") && data.length > 15) {
+    data = data.slice(0, 15);
   }
 
   return {
@@ -244,4 +270,63 @@ function buildDefaultConfig(type, groupBy, valueColumns) {
 
 function round2(n) {
   return Math.round(n * 100) / 100;
+}
+
+// ── Date detection and formatting ─────────────────────────────────────────────
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/;
+const EPOCH_THRESHOLD = 946684800000; // 2000-01-01 in ms — anything above this that looks numeric is likely epoch
+
+/**
+ * Detect if a column's values look like dates.
+ * Returns "iso" | "epoch_s" | "epoch_ms" | null
+ */
+function detectDateColumn(rows, colName) {
+  const sample = rows.slice(0, 20).map(r => r[colName]).filter(v => v != null && v !== "");
+  if (sample.length === 0) return null;
+
+  // Check ISO date strings
+  const isoCount = sample.filter(v => typeof v === "string" && ISO_DATE_RE.test(v)).length;
+  if (isoCount > sample.length * 0.7) return "iso";
+
+  // Check numeric epochs
+  const nums = sample.map(Number).filter(n => !isNaN(n));
+  if (nums.length > sample.length * 0.7) {
+    if (nums.every(n => n > EPOCH_THRESHOLD)) return "epoch_ms";
+    if (nums.every(n => n > EPOCH_THRESHOLD / 1000)) return "epoch_s";
+  }
+  return null;
+}
+
+const MONTH_NAMES_FR = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
+
+/**
+ * Format a date value to a human-readable label.
+ */
+function formatDateLabel(value, dateType, granularity) {
+  let d;
+  if (dateType === "epoch_ms") d = new Date(Number(value));
+  else if (dateType === "epoch_s") d = new Date(Number(value) * 1000);
+  else d = new Date(value);
+
+  if (isNaN(d.getTime())) return String(value);
+
+  switch (granularity) {
+    case "year": return String(d.getFullYear());
+    case "quarter": return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
+    case "day": return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+    case "month":
+    default:
+      return `${MONTH_NAMES_FR[d.getMonth()]} ${d.getFullYear()}`;
+  }
+}
+
+/**
+ * Get a sortable timestamp from a value for chronological ordering.
+ */
+function toTimestamp(value, dateType) {
+  if (dateType === "epoch_ms") return Number(value);
+  if (dateType === "epoch_s") return Number(value) * 1000;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
 }
