@@ -541,8 +541,9 @@ async function aiVision(systemPrompt, textPrompt, images, { maxTokens = 4096 } =
 // ─── Express app ─────────────────────────────────────────────────────────────
 
 const app = express();
+if (IS_VERCEL) app.set("trust proxy", 1);
 const ALLOWED_ORIGINS = IS_VERCEL
-  ? [/\.vercel\.app$/, /localhost/]
+  ? [/\.vercel\.app$/, /localhost/, /lite-ops\.com$/]
   : ["http://localhost:5173", "http://localhost:5183", "http://localhost:5174"];
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
