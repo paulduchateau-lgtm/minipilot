@@ -3354,12 +3354,7 @@ RÈGLE CRITIQUE SUR LE FORMAT DE SORTIE :
 app.get("/api/w/:slug/reports", async (req, res) => {
   try {
     const rows = await dbAll("SELECT * FROM reports WHERE workspace_id = ? AND (trashed IS NULL OR trashed = 0) ORDER BY created_at DESC", req.workspace.id);
-    const reports = [];
-    for (const r of rows) {
-      const report = deserializeReport(r);
-      await enrichReportSources(report, req.workspace.id);
-      reports.push(report);
-    }
+    const reports = rows.map(deserializeReport);
     res.json({ shared: reports.filter(r => r.shared), private: reports.filter(r => !r.shared) });
   } catch (err) {
     console.error("[GET /api/w/:slug/reports]", err);
