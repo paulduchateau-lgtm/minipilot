@@ -295,7 +295,7 @@ export default function OnboardingWizard({ onComplete }) {
           color: "var(--mp-text-muted)", textAlign: "center",
           marginTop: 32,
         }}>
-          SLM locaux — aucune donnee ne quitte votre infrastructure
+          Environnement sécurisé — données chiffrées et hébergées en Europe
         </p>
       </div>
     </div>

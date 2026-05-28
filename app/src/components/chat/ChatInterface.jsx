@@ -418,7 +418,7 @@ export default function ChatInterface({ onOpenReport }) {
           color: "var(--mp-text-muted)", textAlign: "center",
           marginTop: 8, textTransform: "uppercase", letterSpacing: "0.1em",
         }}>
-          SLM locaux — aucune donnee ne quitte votre infrastructure
+          Environnement sécurisé — données chiffrées et hébergées en Europe
         </p>
       </div>
     </div>
