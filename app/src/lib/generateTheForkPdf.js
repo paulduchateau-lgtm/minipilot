@@ -10,6 +10,26 @@ import html2canvas from "html2canvas";
 import TheForkPdfRenderer from "../components/TheForkPdfRenderer";
 import { theForkTokens } from "./thefork-tokens";
 
+// ── Ensure TheFork brand fonts are loaded ──
+const TF_FONTS_URL = "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Hind:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap";
+
+async function ensureFontsLoaded() {
+  // Inject font link if not already present
+  if (!document.querySelector(`link[href*="Outfit"]`)) {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = TF_FONTS_URL;
+    document.head.appendChild(link);
+  }
+  // Wait for fonts to be ready
+  try {
+    await Promise.race([
+      document.fonts.ready,
+      new Promise(r => setTimeout(r, 3000)), // 3s timeout
+    ]);
+  } catch { /* proceed anyway */ }
+}
+
 // ── SVG → Canvas conversion (html2canvas can't render inline SVGs) ──
 async function convertSvgsToCanvas(container) {
   const svgs = container.querySelectorAll("svg");
@@ -74,6 +94,9 @@ const CONTENT_H = PDF_H - MARGIN.top - MARGIN.bottom;
  * @param {object} interpretations — Optional { [sectionIndex]: { factuelle, analytique, ... } }
  */
 export async function generateTheForkPdf(report, interpretations = {}) {
+  // ── 0. Ensure brand fonts are loaded ──
+  await ensureFontsLoaded();
+
   // ── 1. Create off-screen but visible container ──
   const wrapper = document.createElement("div");
   wrapper.style.cssText = `

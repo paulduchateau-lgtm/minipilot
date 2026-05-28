@@ -37,8 +37,8 @@ export const theForkTokens = {
     },
   },
   typography: {
-    display: { family: '"Recoleta", Georgia, serif', weight: 600 },
-    body: { family: '"Inter", "DM Sans", -apple-system, sans-serif', weight: 400 },
+    display: { family: '"Outfit", "DM Sans", sans-serif', weight: 600 },
+    body: { family: '"Hind", "DM Sans", -apple-system, sans-serif', weight: 400 },
     mono: { family: '"JetBrains Mono", "SF Mono", Consolas, monospace', weight: 400 },
   },
   scale: {
