@@ -46,13 +46,26 @@ function RiskBadge({ value }) {
   );
 }
 
+// Excel serial date helpers (shared between DataTable and RenderSection)
+const EXCEL_EPOCH_TABLE = new Date(1899, 11, 30);
+function isExcelDateVal(v) {
+  const n = typeof v === "number" ? v : (typeof v === "string" ? Number(v) : NaN);
+  return !isNaN(n) && n > 40000 && n < 55000 && Number.isInteger(n);
+}
+function excelToDateStr(serial) {
+  const d = new Date(EXCEL_EPOCH_TABLE.getTime() + Number(serial) * 86400000);
+  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+}
+
 function DataTable({ section }) {
   // Derive columns from data keys if columns not provided by AI
-  const columns = section.columns || (
+  const rawColumns = section.columns || (
     section.data?.length > 0
       ? Object.keys(section.data[0]).map(key => ({ key, label: key, align: typeof section.data[0][key] === "number" ? "right" : "left" }))
       : []
   );
+  // Filter out _count column
+  const columns = rawColumns.filter(col => col.key !== "_count");
   const data = section.data || [];
 
   if (columns.length === 0) return <p style={{ fontSize: 13, color: "var(--mp-text-muted)" }}>Aucune donnée à afficher.</p>;
@@ -95,6 +108,9 @@ function DataTable({ section }) {
                 if (col.key === "risque") {
                   return <td key={col.key} style={{ padding: "10px 14px" }}><RiskBadge value={val} /></td>;
                 }
+
+                // Convert Excel serial dates in table cells
+                if (isExcelDateVal(val)) val = excelToDateStr(val);
 
                 val = formatValue(val, col.fmt);
                 if (col.hl) color = getHighlightColor(row[col.key]);
@@ -342,7 +358,74 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
   const [annotating, setAnnotating] = useState(false);
   const ct = useChartTheme();
   const h = 300;
-  const c = section.config || {};
+
+  // ── Excel serial date → readable date ──
+  // Excel dates are stored as days since 1900-01-01. Values 40000–55000
+  // correspond to ~2009–2050. Convert them to "janv. 2026" style labels.
+  const EXCEL_EPOCH = new Date(1899, 11, 30); // Excel day 0
+  function isExcelDate(v) {
+    return typeof v === "number" && v > 40000 && v < 55000 && Number.isInteger(v);
+  }
+  function excelToDate(serial) {
+    const d = new Date(EXCEL_EPOCH.getTime() + serial * 86400000);
+    return d.toLocaleDateString("fr-FR", { month: "short", year: "numeric" });
+  }
+  function isExcelDateStr(v) {
+    if (typeof v !== "string") return false;
+    const n = Number(v);
+    return !isNaN(n) && n > 40000 && n < 55000 && Number.isInteger(n);
+  }
+
+  // Convert Excel serial dates in data to readable strings
+  function convertExcelDates(data, xKey) {
+    if (!data?.length || !xKey) return data;
+    const sample = data[0][xKey];
+    if (isExcelDate(sample) || isExcelDateStr(sample)) {
+      return data.map(row => ({
+        ...row,
+        [xKey]: isExcelDate(row[xKey]) ? excelToDate(row[xKey])
+              : isExcelDateStr(row[xKey]) ? excelToDate(Number(row[xKey]))
+              : row[xKey],
+      }));
+    }
+    return data;
+  }
+
+  // ── Auto-infer chart config when AI didn't provide it ──
+  // Uses section-level xKey/yKeys as fallback, then infers from data shape.
+  const rawConfig = section.config || {};
+  const c = { ...rawConfig };
+  if (!c.xKey || !c.yKeys?.length) {
+    // Try section-level keys first (some reports put them at section root)
+    if (section.xKey) c.xKey = section.xKey;
+    if (section.yKeys?.length) c.yKeys = section.yKeys;
+    if (section.nameKey) c.nameKey = section.nameKey;
+    if (section.valueKey) c.valueKey = section.valueKey;
+  }
+  if ((!c.xKey || !c.yKeys?.length) && section.data?.length > 0) {
+    // Infer from data: first string-like key = xKey, numeric keys = yKeys
+    const sample = section.data[0];
+    const skipKeys = new Set(["_count", "data_sources"]);
+    const strKeys = [];
+    const numKeys = [];
+    for (const [k, v] of Object.entries(sample)) {
+      if (skipKeys.has(k)) continue;
+      if (typeof v === "string" || (typeof v === "number" && (isExcelDate(v) || isExcelDateStr(String(v))))) {
+        strKeys.push(k);
+      }
+      if (typeof v === "number" && !isExcelDate(v) && !skipKeys.has(k)) {
+        numKeys.push(k);
+      }
+    }
+    if (!c.xKey && strKeys.length > 0) c.xKey = strKeys[0];
+    if (!c.xKey && numKeys.length > 1) c.xKey = numKeys[0]; // fallback: first numeric as category
+    if (!c.yKeys?.length && numKeys.length > 0) {
+      c.yKeys = numKeys.filter(k => k !== c.xKey);
+    }
+  }
+
+  // Apply Excel date conversion to chart data
+  const chartData = convertExcelDates(section.data, c.xKey);
 
   // Remap report colors to current theme
   const remapColor = (color) => {
@@ -358,10 +441,15 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
 
       switch (section.type) {
         case "composed":
-          if (!section.data?.length) return noData;
+          if (!chartData?.length) return noData;
+          // For composed charts without explicit bars/line config, auto-generate from yKeys
+          if (!c.bars?.length && !c.line && c.yKeys?.length) {
+            c.bars = c.yKeys.slice(0, -1).map((k, i) => ({ key: k, color: ct.colors[i], name: k }));
+            c.line = { key: c.yKeys[c.yKeys.length - 1], color: ct.colors[c.yKeys.length - 1], name: c.yKeys[c.yKeys.length - 1] };
+          }
           return (
             <ResponsiveContainer width="100%" height={h}>
-              <ComposedChart data={section.data}>
+              <ComposedChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} />
                 <XAxis dataKey={c.xKey} tick={ct.axis} axisLine={{ stroke: ct.grid }} />
                 <YAxis yAxisId="left" tick={ct.axis} axisLine={{ stroke: ct.grid }} />
@@ -375,10 +463,10 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
           );
 
         case "bar":
-          if (!section.data?.length || !c.yKeys?.length) return noData;
+          if (!chartData?.length || !c.yKeys?.length) return noData;
           return (
             <ResponsiveContainer width="100%" height={h}>
-              <BarChart data={section.data}>
+              <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} />
                 <XAxis dataKey={c.xKey} tick={ct.axis} axisLine={{ stroke: ct.grid }} />
                 <YAxis tick={ct.axis} axisLine={{ stroke: ct.grid }} />
@@ -389,10 +477,10 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
           );
 
         case "grouped_bar":
-          if (!section.data?.length || !c.yKeys?.length) return noData;
+          if (!chartData?.length || !c.yKeys?.length) return noData;
           return (
             <ResponsiveContainer width="100%" height={h}>
-              <BarChart data={section.data}>
+              <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} />
                 <XAxis dataKey={c.xKey} tick={ct.axis} axisLine={{ stroke: ct.grid }} />
                 <YAxis tick={ct.axis} axisLine={{ stroke: ct.grid }} />
@@ -404,10 +492,10 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
           );
 
         case "area_multi":
-          if (!section.data?.length || !c.yKeys?.length) return noData;
+          if (!chartData?.length || !c.yKeys?.length) return noData;
           return (
             <ResponsiveContainer width="100%" height={h}>
-              <AreaChart data={section.data}>
+              <AreaChart data={chartData}>
                 <defs>
                   {c.yKeys.map((k,i) => (
                     <linearGradient key={k} id={`ag_${k}`} x1="0" y1="0" x2="0" y2="1">
@@ -426,11 +514,24 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
             </ResponsiveContainer>
           );
 
-        case "pie_multi":
-          if (!section.data_sets?.length) return noData;
+        case "pie_multi": {
+          // Support both data_sets format and flat data format
+          let pieDataSets = section.data_sets;
+          if (!pieDataSets?.length && section.data?.length) {
+            // Convert flat data to single pie data_set
+            const nameK = c.nameKey || c.xKey || Object.keys(section.data[0]).find(k => typeof section.data[0][k] === "string" && k !== "_count");
+            const valK = c.valueKey || (c.yKeys?.[0]) || Object.keys(section.data[0]).find(k => typeof section.data[0][k] === "number" && k !== "_count");
+            if (nameK && valK) {
+              pieDataSets = [{
+                label: section.title || "",
+                data: section.data.map(row => ({ name: row[nameK], value: row[valK] })),
+              }];
+            }
+          }
+          if (!pieDataSets?.length) return noData;
           return (
             <div style={{ display: "flex", gap: 40, justifyContent: "center", flexWrap: "wrap" }}>
-              {section.data_sets.map((ds, di) => {
+              {pieDataSets.map((ds, di) => {
                 const items = ds.data || [];
                 return (
                   <div key={di} style={{ textAlign: "center", minWidth: 280 }}>
@@ -473,6 +574,7 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
               })}
             </div>
           );
+        }
 
         case "table":
           return <DataTable section={section} />;
