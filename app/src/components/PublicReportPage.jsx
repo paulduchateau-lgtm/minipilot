@@ -53,7 +53,7 @@ if (typeof document !== "undefined" && !document.querySelector(`link[href="${TF_
 
 export default function PublicReportPage() {
   const { token } = useParams();
-  const { theme, toggle: toggleTheme } = useTheme();
+  const { theme, toggle: toggleTheme, setTheme } = useTheme();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -119,6 +119,13 @@ export default function PublicReportPage() {
 
   // ── Detect TheFork tenant ──────────────────────────────────────
   const isTheFork = data?.tenant === "thefork";
+
+  // Force light theme for TheFork (charts use theme context for palette)
+  useEffect(() => {
+    if (isTheFork && theme !== "light") {
+      setTheme("light");
+    }
+  }, [isTheFork, theme, setTheme]);
 
   if (loading) {
     return (
@@ -214,18 +221,6 @@ export default function PublicReportPage() {
             >
               {pdfLoading ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : <Download size={12} />}
               PDF
-            </button>
-            <button
-              onClick={toggleTheme}
-              style={{
-                background: TF.paper, border: `1px solid ${TF.ink100}`,
-                borderRadius: TF.radiusSm, padding: "6px 10px", cursor: "pointer",
-                display: "flex", alignItems: "center",
-                color: TF.ink700, fontSize: 11, fontFamily: "inherit",
-              }}
-              title={theme === "dark" ? "Mode clair" : "Mode sombre"}
-            >
-              {theme === "dark" ? <Sun size={12} /> : <Moon size={12} />}
             </button>
           </div>
         </div>

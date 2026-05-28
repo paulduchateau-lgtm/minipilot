@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 
-const ThemeContext = createContext({ theme: "dark", toggle: () => {} });
+const ThemeContext = createContext({ theme: "dark", toggle: () => {}, setTheme: () => {} });
 
 // Chart palettes aligned with litechange-tokens.css v2.0
 // Order: lite → signal → warm → quaternary
@@ -57,8 +57,10 @@ export function ThemeProvider({ children }) {
 
   const toggle = useCallback(() => setTheme(t => t === "dark" ? "light" : "dark"), []);
 
+  const set = useCallback((t) => setTheme(t), []);
+
   return (
-    <ThemeContext.Provider value={{ theme, toggle }}>
+    <ThemeContext.Provider value={{ theme, toggle, setTheme: set }}>
       {children}
     </ThemeContext.Provider>
   );
