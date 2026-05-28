@@ -675,20 +675,20 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
       </div>
       {expanded && (
         <div style={{ padding: "0 20px 20px" }}>
+          <DataInspector section={section} />
+          {renderChart()}
           {section.insight && (
             <div style={{
               background: "var(--mp-bg-elevated)",
               borderRadius: "var(--radius-sm)",
               padding: "10px 14px",
-              marginBottom: 14,
+              marginTop: 14,
               borderLeft: "3px solid var(--mp-accent)",
               transition: "background 0.3s, border-color 0.3s",
             }}>
               <p style={{ fontSize: 12, color: "var(--mp-text-secondary)", lineHeight: 1.7, margin: 0 }}>{section.insight}</p>
             </div>
           )}
-          <DataInspector section={section} />
-          {renderChart()}
           {(interpretation || interpretLoading || interpretError) && (
             <InterpretationPanel
               interpretation={interpretation}
