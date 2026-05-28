@@ -150,12 +150,12 @@ export function formatVariation(value, pct) {
  * 8-color palette for Recharts, derived from brand + food tokens.
  */
 export const theForkChartColors = [
-  theForkTokens.color.brand.primary,      // #00A082 — hero green
+  '#00645A',                              // TheFork deep teal — couleur de base
   theForkTokens.color.food.saffron,       // #F5B82E — saffron
   theForkTokens.color.food.tomato,        // #E94E3A — tomato
+  theForkTokens.color.brand.primary,      // #00A082 — hero green
   theForkTokens.color.secondary.lime,     // #9BCB3C — lime
   theForkTokens.color.food.aubergine,     // #5A2A4D — aubergine
-  theForkTokens.color.brand.primaryLight, // #33B59B — light green
   theForkTokens.color.food.olive,         // #7A8C3F — olive
   theForkTokens.color.food.paprika,       // #D9542B — paprika
 ]
