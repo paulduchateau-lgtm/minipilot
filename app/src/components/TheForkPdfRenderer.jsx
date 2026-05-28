@@ -27,10 +27,71 @@ const C = {
 };
 
 const FONTS = {
-  display: T.typography.display.family,  // "Recoleta", Georgia, serif
-  body:    T.typography.body.family,     // "Inter", "DM Sans", ...
+  display: T.typography.display.family,  // "Outfit", "DM Sans", sans-serif
+  body:    T.typography.body.family,     // "Hind", "DM Sans", sans-serif
   mono:    T.typography.mono.family,     // "JetBrains Mono", ...
 };
+
+// ── Excel serial date helpers ────────────────────────────────────
+const EXCEL_EPOCH = new Date(1899, 11, 30);
+function isExcelDate(v) {
+  return typeof v === "number" && v > 40000 && v < 55000 && Number.isInteger(v);
+}
+function isExcelDateStr(v) {
+  if (typeof v !== "string") return false;
+  const n = Number(v);
+  return !isNaN(n) && n > 40000 && n < 55000 && Number.isInteger(n);
+}
+function excelToDate(serial) {
+  const d = new Date(EXCEL_EPOCH.getTime() + Number(serial) * 86400000);
+  return d.toLocaleDateString("fr-FR", { month: "short", year: "numeric" });
+}
+function convertExcelDates(data, xKey) {
+  if (!data?.length || !xKey) return data;
+  const sample = data[0][xKey];
+  if (isExcelDate(sample) || isExcelDateStr(sample)) {
+    return data.map(row => ({
+      ...row,
+      [xKey]: isExcelDate(row[xKey]) ? excelToDate(row[xKey])
+            : isExcelDateStr(row[xKey]) ? excelToDate(Number(row[xKey]))
+            : row[xKey],
+    }));
+  }
+  return data;
+}
+
+// ── Auto-infer chart config when AI didn't provide it ────────────
+function inferChartConfig(section) {
+  const rawConfig = section.config || {};
+  const c = { ...rawConfig };
+  if (!c.xKey || !c.yKeys?.length) {
+    if (section.xKey) c.xKey = section.xKey;
+    if (section.yKeys?.length) c.yKeys = section.yKeys;
+    if (section.nameKey) c.nameKey = section.nameKey;
+    if (section.valueKey) c.valueKey = section.valueKey;
+  }
+  if ((!c.xKey || !c.yKeys?.length) && section.data?.length > 0) {
+    const sample = section.data[0];
+    const skipKeys = new Set(["_count", "data_sources"]);
+    const strKeys = [];
+    const numKeys = [];
+    for (const [k, v] of Object.entries(sample)) {
+      if (skipKeys.has(k)) continue;
+      if (typeof v === "string" || (typeof v === "number" && isExcelDate(v))) {
+        strKeys.push(k);
+      }
+      if (typeof v === "number" && !isExcelDate(v) && !skipKeys.has(k)) {
+        numKeys.push(k);
+      }
+    }
+    if (!c.xKey && strKeys.length > 0) c.xKey = strKeys[0];
+    if (!c.xKey && numKeys.length > 1) c.xKey = numKeys[0];
+    if (!c.yKeys?.length && numKeys.length > 0) {
+      c.yKeys = numKeys.filter(k => k !== c.xKey);
+    }
+  }
+  return c;
+}
 
 // ── Color remapping (legacy → TheFork) ───────────────────────────
 const remapColor = (color) => {
@@ -84,11 +145,12 @@ function trendArrow(kpi) {
 
 // ── Chart sub-components (static, no animation) ──────────────────
 
-function PdfBarChart({ section }) {
-  const c = section.config || {};
-  if (!section.data?.length || !c.yKeys?.length) return null;
+function PdfBarChart({ section, config }) {
+  const c = config;
+  const chartData = convertExcelDates(section.data, c.xKey);
+  if (!chartData?.length || !c.yKeys?.length) return null;
   return (
-    <BarChart width={CHART_W} height={CHART_H} data={section.data}>
+    <BarChart width={CHART_W} height={CHART_H} data={chartData}>
       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
       <XAxis dataKey={c.xKey} tick={axisStyle} axisLine={{ stroke: C.border }} />
       <YAxis tick={axisStyle} axisLine={{ stroke: C.border }} />
@@ -101,11 +163,12 @@ function PdfBarChart({ section }) {
   );
 }
 
-function PdfGroupedBarChart({ section }) {
-  const c = section.config || {};
-  if (!section.data?.length || !c.yKeys?.length) return null;
+function PdfGroupedBarChart({ section, config }) {
+  const c = config;
+  const chartData = convertExcelDates(section.data, c.xKey);
+  if (!chartData?.length || !c.yKeys?.length) return null;
   return (
-    <BarChart width={CHART_W} height={CHART_H} data={section.data}>
+    <BarChart width={CHART_W} height={CHART_H} data={chartData}>
       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
       <XAxis dataKey={c.xKey} tick={axisStyle} axisLine={{ stroke: C.border }} />
       <YAxis tick={axisStyle} axisLine={{ stroke: C.border }} />
@@ -119,11 +182,12 @@ function PdfGroupedBarChart({ section }) {
   );
 }
 
-function PdfAreaChart({ section }) {
-  const c = section.config || {};
-  if (!section.data?.length || !c.yKeys?.length) return null;
+function PdfAreaChart({ section, config }) {
+  const c = config;
+  const chartData = convertExcelDates(section.data, c.xKey);
+  if (!chartData?.length || !c.yKeys?.length) return null;
   return (
-    <AreaChart width={CHART_W} height={CHART_H} data={section.data}>
+    <AreaChart width={CHART_W} height={CHART_H} data={chartData}>
       <defs>
         {c.yKeys.map((k, i) => (
           <linearGradient key={k} id={`tf_ag_${k}`} x1="0" y1="0" x2="0" y2="1">
@@ -147,11 +211,17 @@ function PdfAreaChart({ section }) {
   );
 }
 
-function PdfComposedChart({ section }) {
-  const c = section.config || {};
-  if (!section.data?.length) return null;
+function PdfComposedChart({ section, config }) {
+  const c = { ...config };
+  const chartData = convertExcelDates(section.data, c.xKey);
+  if (!chartData?.length) return null;
+  // Auto-generate bars/line from yKeys when explicit config is missing
+  if (!c.bars?.length && !c.line && c.yKeys?.length) {
+    c.bars = c.yKeys.slice(0, -1).map((k, i) => ({ key: k, color: CHART_COLORS[i], name: k }));
+    c.line = { key: c.yKeys[c.yKeys.length - 1], color: CHART_COLORS[c.yKeys.length - 1], name: c.yKeys[c.yKeys.length - 1] };
+  }
   return (
-    <ComposedChart width={CHART_W} height={CHART_H} data={section.data}>
+    <ComposedChart width={CHART_W} height={CHART_H} data={chartData}>
       <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
       <XAxis dataKey={c.xKey} tick={axisStyle} axisLine={{ stroke: C.border }} />
       <YAxis yAxisId="left" tick={axisStyle} axisLine={{ stroke: C.border }} />
@@ -173,11 +243,24 @@ function PdfComposedChart({ section }) {
   );
 }
 
-function PdfPieMulti({ section }) {
-  if (!section.data_sets?.length) return null;
+function PdfPieMulti({ section, config }) {
+  const c = config;
+  // Support both data_sets format and flat data format
+  let pieDataSets = section.data_sets;
+  if (!pieDataSets?.length && section.data?.length) {
+    const nameK = c.nameKey || c.xKey || Object.keys(section.data[0]).find(k => typeof section.data[0][k] === "string" && k !== "_count");
+    const valK = c.valueKey || (c.yKeys?.[0]) || Object.keys(section.data[0]).find(k => typeof section.data[0][k] === "number" && k !== "_count");
+    if (nameK && valK) {
+      pieDataSets = [{
+        label: section.title || "",
+        data: section.data.map(row => ({ name: row[nameK], value: row[valK] })),
+      }];
+    }
+  }
+  if (!pieDataSets?.length) return null;
   return (
     <div style={{ display: "flex", gap: 32, justifyContent: "center", flexWrap: "wrap" }}>
-      {section.data_sets.map((ds, di) => {
+      {pieDataSets.map((ds, di) => {
         const items = ds.data || [];
         return (
           <div key={di} style={{ textAlign: "center", minWidth: 260 }}>
@@ -211,7 +294,7 @@ function PdfPieMulti({ section }) {
 }
 
 function PdfTable({ section }) {
-  const columns = section.columns || (
+  const rawColumns = section.columns || (
     section.data?.length > 0
       ? Object.keys(section.data[0]).map(key => ({
           key, label: key,
@@ -219,6 +302,8 @@ function PdfTable({ section }) {
         }))
       : []
   );
+  // Filter out _count and data_sources columns
+  const columns = rawColumns.filter(col => col.key !== "_count" && col.key !== "data_sources");
   const data = section.data || [];
   if (!columns.length) return null;
 
@@ -260,6 +345,9 @@ function PdfTable({ section }) {
                   </td>
                 );
               }
+              // Convert Excel serial dates in table cells
+              if (isExcelDate(val)) val = excelToDate(val);
+              else if (isExcelDateStr(val)) val = excelToDate(Number(val));
               val = formatValue(val, col.fmt);
               return (
                 <td key={col.key} style={{
@@ -313,13 +401,15 @@ function InterpretationBlock({ interpretation }) {
 
 // ── Section renderer ─────────────────────────────────────────────
 function PdfSection({ section, interpretation }) {
+  const config = inferChartConfig(section);
+
   const renderChart = () => {
     switch (section.type) {
-      case "bar":         return <PdfBarChart section={section} />;
-      case "grouped_bar": return <PdfGroupedBarChart section={section} />;
-      case "area_multi":  return <PdfAreaChart section={section} />;
-      case "composed":    return <PdfComposedChart section={section} />;
-      case "pie_multi":   return <PdfPieMulti section={section} />;
+      case "bar":         return <PdfBarChart section={section} config={config} />;
+      case "grouped_bar": return <PdfGroupedBarChart section={section} config={config} />;
+      case "area_multi":  return <PdfAreaChart section={section} config={config} />;
+      case "composed":    return <PdfComposedChart section={section} config={config} />;
+      case "pie_multi":   return <PdfPieMulti section={section} config={config} />;
       case "table":       return <PdfTable section={section} />;
       default:            return null;
     }
@@ -341,10 +431,13 @@ function PdfSection({ section, interpretation }) {
       </div>
 
       <div style={{ padding: "16px 20px" }}>
-        {/* Insight callout */}
+        {/* Chart or table */}
+        {renderChart()}
+
+        {/* Insight callout (below chart) */}
         {section.insight && (
           <div style={{
-            background: C.brandSoft, padding: "10px 14px", marginBottom: 14,
+            background: C.brandSoft, padding: "10px 14px", marginTop: 14,
             borderLeft: `3px solid ${C.brand}`,
           }}>
             <p style={{
@@ -353,9 +446,6 @@ function PdfSection({ section, interpretation }) {
             }}>{section.insight}</p>
           </div>
         )}
-
-        {/* Chart or table */}
-        {renderChart()}
 
         {/* Interpretation */}
         <InterpretationBlock interpretation={interpretation} />
@@ -383,12 +473,14 @@ export default function TheForkPdfRenderer({ report, interpretations }) {
         {/* Top green bar */}
         <div style={{ height: 8, background: C.brand, margin: "0 -28px 32px" }} />
 
-        {/* Logo placeholder */}
+        {/* TheFork logo */}
         <div style={{ marginBottom: 40 }}>
-          <span style={{
-            fontFamily: FONTS.mono, fontSize: 14, fontWeight: 400,
-            textTransform: "uppercase", letterSpacing: "0.15em", color: C.text,
-          }}>THE FORK</span>
+          <img
+            src="/logo_thefork.png"
+            alt="TheFork"
+            style={{ height: 32, width: "auto", display: "block" }}
+            crossOrigin="anonymous"
+          />
         </div>
 
         {/* Title */}
