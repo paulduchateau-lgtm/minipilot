@@ -1353,7 +1353,13 @@ app.post("/api/upload", upload.array("files", 10), async (req, res) => {
           Object.keys(sheetRows[0])
             .filter(k => !k.startsWith("__EMPTY"))
             .forEach(k => allCols.add(k));
-          rows = rows.concat(sheetRows.map(r => ({ _sheet: sheetName, ...r })));
+          rows = rows.concat(sheetRows.map(r => {
+            const row = { _sheet: sheetName };
+            for (const [k, v] of Object.entries(r)) {
+              if (!k.startsWith("__EMPTY")) row[k] = v;
+            }
+            return row;
+          }));
         }
         columns = [...allCols];
       } else if (ext === ".csv") {
@@ -2507,7 +2513,13 @@ app.post("/api/w/:slug/upload", upload.array("files", 10), async (req, res) => {
           const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
           if (sheetRows.length === 0) continue;
           Object.keys(sheetRows[0]).filter(k => !k.startsWith("__EMPTY")).forEach(k => allCols.add(k));
-          rows = rows.concat(sheetRows.map(r => ({ _sheet: sheetName, ...r })));
+          rows = rows.concat(sheetRows.map(r => {
+            const row = { _sheet: sheetName };
+            for (const [k, v] of Object.entries(r)) {
+              if (!k.startsWith("__EMPTY")) row[k] = v;
+            }
+            return row;
+          }));
         }
         columns = [...allCols];
       } else if (ext === ".csv") {
@@ -2664,7 +2676,13 @@ app.post("/api/w/:slug/transform", async (req, res) => {
 
         const originalKeys = Object.keys(nonEmptyRows[0]);
         const keyMap = {};
-        for (const k of originalKeys) keyMap[k] = normalizeColumnName(k);
+        const JUNK_COL_RE = /^_*(?:empty|unnamed|colonne?|field|champ)_*\d*$/i;
+        for (const k of originalKeys) {
+          if (k.startsWith("__EMPTY")) continue;           // raw XLSX artifact
+          const norm = normalizeColumnName(k);
+          if (JUNK_COL_RE.test(norm)) continue;             // normalized junk
+          keyMap[k] = norm;
+        }
 
         const displayName = sheetName || path.basename(file.name, path.extname(file.name));
         allSheetMeta.push({
