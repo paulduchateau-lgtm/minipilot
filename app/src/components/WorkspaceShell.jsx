@@ -28,6 +28,9 @@ function WorkspaceContent() {
   const [reportsLoading, setReportsLoading] = useState(true);
   const [viewingReport, setViewingReport] = useState(null);
   const [reportsGenerating, setReportsGenerating] = useState(false);
+  const [hasImprovingSection, setHasImprovingSection] = useState(false);
+  const [showLeaveWarning, setShowLeaveWarning] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState(null);
 
   // Dynamic browser tab title based on workspace product type
   useEffect(() => {
@@ -162,10 +165,34 @@ function WorkspaceContent() {
   }, [currentPage, viewingReport, reports, subPath]);
 
   const handleSetPage = (p) => {
-    if (p !== "report") setViewingReport(null);
+    // Guard: warn if leaving report while section improvements are running
+    if (currentPage === "report" && p !== "report" && hasImprovingSection) {
+      setPendingNavigation(p);
+      setShowLeaveWarning(true);
+      return;
+    }
+    if (p !== "report") { setViewingReport(null); setHasImprovingSection(false); }
     if (p === "dashboard") navigate(`${basePath}/${slug}`);
     else navigate(`${basePath}/${slug}/${p}`);
     if (p === "dashboard") loadReports();
+  };
+
+  const confirmLeave = () => {
+    setShowLeaveWarning(false);
+    setHasImprovingSection(false);
+    const p = pendingNavigation;
+    setPendingNavigation(null);
+    if (p) {
+      if (p !== "report") setViewingReport(null);
+      if (p === "dashboard") navigate(`${basePath}/${slug}`);
+      else navigate(`${basePath}/${slug}/${p}`);
+      if (p === "dashboard") loadReports();
+    }
+  };
+
+  const cancelLeave = () => {
+    setShowLeaveWarning(false);
+    setPendingNavigation(null);
   };
 
   if (showOnboarding) {
@@ -280,12 +307,60 @@ function WorkspaceContent() {
                 onToggleFav={() => toggleStar(viewingReport.id)}
                 api={api}
                 onReportUpdated={(updatedReport) => setViewingReport(updatedReport)}
+                onImprovingChange={setHasImprovingSection}
               />
             ) : (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 60 }}>
                 <p style={{ color: "var(--mp-text-muted)", fontSize: 14 }}>Chargement du rapport...</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Navigation guard: warn when leaving report with improvements in progress */}
+        {showLeaveWarning && (
+          <div style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <div style={{
+              background: "var(--mp-bg-card)", border: "1px solid var(--mp-border)",
+              borderRadius: "var(--radius-md)", padding: "28px 32px",
+              maxWidth: 420, width: "90%",
+              boxShadow: "var(--mp-shadow)",
+            }}>
+              <h3 style={{
+                fontSize: 16, fontWeight: 500, margin: "0 0 10px",
+                fontFamily: "var(--font-display)", color: "var(--mp-text)",
+              }}>Améliorations en cours</h3>
+              <p style={{
+                fontSize: 13, color: "var(--mp-text-secondary)",
+                lineHeight: 1.6, margin: "0 0 20px", fontFamily: "var(--font-body)",
+              }}>
+                Attention, si vous quittez ce rapport, les améliorations non terminées seront abandonnées.
+              </p>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button
+                  onClick={cancelLeave}
+                  style={{
+                    background: "var(--mp-accent)", color: "var(--mp-accent-on)",
+                    border: "none", borderRadius: "var(--radius-sm)",
+                    padding: "9px 18px", fontSize: 13, fontWeight: 500,
+                    fontFamily: "var(--font-body)", cursor: "pointer",
+                  }}
+                >Rester sur cette page</button>
+                <button
+                  onClick={confirmLeave}
+                  style={{
+                    background: "transparent", color: "var(--mp-text-muted)",
+                    border: "1px solid var(--mp-border)", borderRadius: "var(--radius-sm)",
+                    padding: "9px 18px", fontSize: 13,
+                    fontFamily: "var(--font-body)", cursor: "pointer",
+                  }}
+                >Quitter quand même</button>
+              </div>
+            </div>
           </div>
         )}
 

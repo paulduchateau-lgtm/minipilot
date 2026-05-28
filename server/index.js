@@ -3635,6 +3635,108 @@ Réponds UNIQUEMENT avec le JSON valide.`;
   }
 });
 
+// ── POST /api/w/:slug/reports/:id/improve-section ────────────────────────────
+// Improves a single section of a report (lighter, faster than full iterate).
+
+app.post("/api/w/:slug/reports/:id/improve-section", async (req, res) => {
+  try {
+    const { slug, id } = req.params;
+    const ws = await dbGet("SELECT * FROM workspaces WHERE slug = ?", slug);
+    if (!ws) return res.status(404).json({ error: "Workspace introuvable." });
+
+    const { sectionIndex, feedback = "" } = req.body;
+    if (sectionIndex == null || sectionIndex < 0) {
+      return res.status(400).json({ error: "sectionIndex requis." });
+    }
+
+    const existing = await dbGet("SELECT * FROM reports WHERE id = ? AND workspace_id = ?", id, ws.id);
+    if (!existing) return res.status(404).json({ error: "Rapport introuvable." });
+
+    const currentReport = deserializeReport(existing);
+    const sections = currentReport.sections || [];
+    if (sectionIndex >= sections.length) {
+      return res.status(400).json({ error: "Index de section invalide." });
+    }
+
+    const section = sections[sectionIndex];
+    const context = await dbGet("SELECT * FROM project_context WHERE workspace_id = ?", ws.id);
+
+    // Compact section for prompt (keep structure, truncate data)
+    const compactSection = { title: section.title, type: section.type };
+    if (section.interpretation) compactSection.interpretation = section.interpretation;
+    if (section.insight) compactSection.insight = section.insight;
+    if (Array.isArray(section.data) && section.data.length > 0) {
+      compactSection.dataPreview = section.data.slice(0, 5);
+      compactSection.dataRowCount = section.data.length;
+    }
+    if (section.xKey) compactSection.xKey = section.xKey;
+    if (section.yKeys) compactSection.yKeys = section.yKeys;
+    if (section.columns) compactSection.columns = section.columns;
+
+    const prompt = `${buildExpertiseIdentity(context)} Tu es un expert en amélioration de rapports analytiques.
+
+Voici UNE SEULE section d'un rapport intitulé "${currentReport.title}" à améliorer :
+
+SECTION ACTUELLE (JSON) :
+${JSON.stringify(compactSection, null, 2)}
+
+DEMANDE D'AMÉLIORATION :
+${feedback || "Améliore cette section : rends le titre plus percutant, enrichis l'interprétation (insight), et optimise la lisibilité."}
+
+CONSIGNES :
+- Retourne UNIQUEMENT le JSON de la section améliorée.
+- Conserve le même "type" et la même structure de données.
+- NE modifie PAS les données (data/dataPreview).
+- Améliore : title, insight, interpretation si présents.
+- Tu peux ajouter un champ "insight" si absent (1-2 phrases d'analyse).
+Réponds UNIQUEMENT avec le JSON valide de la section.`;
+
+    const maxTokens = aiMode === "local" ? 1500 : 2500;
+    const aiResult = await aiComplete("", prompt, { maxTokens });
+
+    // Extract JSON from AI response
+    let improvedSection;
+    try {
+      const raw = aiResult.text.trim();
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        improvedSection = JSON.parse(jsonMatch[0]);
+      } else {
+        return res.status(422).json({ error: "L'IA n'a pas retourné un JSON valide." });
+      }
+    } catch {
+      return res.status(422).json({ error: "JSON invalide dans la réponse IA." });
+    }
+
+    // Re-inject original data
+    if (section.data && Array.isArray(section.data)) improvedSection.data = section.data;
+    if (section.data_sets) improvedSection.data_sets = section.data_sets;
+    delete improvedSection.dataPreview;
+    delete improvedSection.dataRowCount;
+    if (section.xKey && !improvedSection.xKey) improvedSection.xKey = section.xKey;
+    if (section.yKeys && !improvedSection.yKeys) improvedSection.yKeys = section.yKeys;
+    if (section.nameKey && !improvedSection.nameKey) improvedSection.nameKey = section.nameKey;
+    if (section.valueKey && !improvedSection.valueKey) improvedSection.valueKey = section.valueKey;
+    if (section.columns && !improvedSection.columns) improvedSection.columns = section.columns;
+    if (section.config && !improvedSection.config) improvedSection.config = section.config;
+
+    // Preserve type from original
+    improvedSection.type = section.type;
+
+    // Update the section in the report
+    sections[sectionIndex] = improvedSection;
+    await dbRun(
+      "UPDATE reports SET sections = ? WHERE id = ?",
+      JSON.stringify(sections), id
+    );
+
+    res.json({ section: improvedSection, sectionIndex });
+  } catch (err) {
+    console.error("[POST improve-section]", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/w/:slug/reports/:id/versions ────────────────────────────────────
 
 app.get("/api/w/:slug/reports/:id/versions", async (req, res) => {

@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, AreaChart, Area, ComposedChart,
 } from "recharts";
-import { ChevronDown, ChevronUp, Table as TableIcon, BarChart3, MessageSquare, Database, Download, Eye } from "lucide-react";
+import { ChevronDown, ChevronUp, Table as TableIcon, BarChart3, MessageSquare, Database, Download, Eye, Loader2 } from "lucide-react";
 import { useChartTheme } from "../data/theme";
 import InterpretButton from "./Interpretation/InterpretButton";
 import InterpretationPanel from "./Interpretation/InterpretationPanel";
@@ -353,10 +353,24 @@ function DataInspector({ section }) {
   );
 }
 
-export default function RenderSection({ section, feedbackMode, sectionFeedback, onSectionFeedback, sectionIndex, interpretation, interpretLoading, interpretStreamText, interpretError, onInterpret, onCloseInterpretation, hasPersistedInterpretation }) {
+export default function RenderSection({ section, feedbackMode, sectionFeedback, onSectionFeedback, sectionIndex, interpretation, interpretLoading, interpretStreamText, interpretError, onInterpret, onCloseInterpretation, hasPersistedInterpretation, onImproveSection, sectionImproving }) {
   const [expanded, setExpanded] = useState(true);
   const [annotating, setAnnotating] = useState(false);
+  const [improveFeedback, setImproveFeedback] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const ct = useChartTheme();
+
+  // Timer for section improvement
+  useEffect(() => {
+    if (!sectionImproving?.loading || !sectionImproving?.startTime) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - sectionImproving.startTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [sectionImproving?.loading, sectionImproving?.startTime]);
   const h = 300;
 
   // ── Excel serial date → readable date ──
@@ -714,6 +728,77 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
                 opacity: 1, transition: "opacity 150ms ease",
               }}
             />
+          )}
+
+          {/* Section improvement input + button */}
+          {onImproveSection && (
+            <div style={{
+              marginTop: 14, display: "flex", gap: 8,
+              justifyContent: "flex-end", alignItems: "flex-end",
+            }}>
+              {sectionImproving?.error && (
+                <span style={{
+                  fontSize: 11, color: "var(--mp-warm)",
+                  fontFamily: "var(--font-body)", flex: 1,
+                }}>{sectionImproving.error}</span>
+              )}
+              <input
+                type="text"
+                value={improveFeedback}
+                onChange={e => setImproveFeedback(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !sectionImproving?.loading) {
+                    onImproveSection(sectionIndex, improveFeedback);
+                    setImproveFeedback("");
+                  }
+                }}
+                placeholder="Instructions (optionnel)"
+                disabled={!!sectionImproving?.loading}
+                style={{
+                  flex: 1, maxWidth: 320, fontSize: 12,
+                  fontFamily: "var(--font-body)",
+                  background: "var(--mp-bg)", border: "1px solid var(--mp-border)",
+                  borderRadius: "var(--radius-sm)", padding: "7px 12px",
+                  color: "var(--mp-text)",
+                  opacity: sectionImproving?.loading ? 0.5 : 1,
+                }}
+              />
+              <button
+                onClick={() => {
+                  if (!sectionImproving?.loading) {
+                    onImproveSection(sectionIndex, improveFeedback);
+                    setImproveFeedback("");
+                  }
+                }}
+                disabled={!!sectionImproving?.loading}
+                style={{
+                  background: sectionImproving?.loading ? "var(--mp-bg-elevated)" : "var(--mp-accent)",
+                  color: sectionImproving?.loading ? "var(--mp-text-muted)" : "var(--mp-accent-on)",
+                  border: sectionImproving?.loading ? "1px solid var(--mp-border)" : "none",
+                  borderRadius: "var(--radius-sm)",
+                  padding: "7px 16px", fontSize: 12, fontWeight: 500,
+                  fontFamily: "var(--font-body)",
+                  cursor: sectionImproving?.loading ? "default" : "pointer",
+                  display: "flex", alignItems: "center", gap: 6,
+                  whiteSpace: "nowrap",
+                  transition: "background 0.15s, color 0.15s",
+                }}
+              >
+                {sectionImproving?.loading ? (
+                  <>
+                    <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />
+                    Amélioration en cours… {elapsedSeconds > 0 && (
+                      <span style={{
+                        fontFamily: "var(--font-data)", fontSize: 10,
+                        fontVariantNumeric: "tabular-nums",
+                      }}>{elapsedSeconds}s</span>
+                    )}
+                  </>
+                ) : (
+                  "Améliorer la section"
+                )}
+              </button>
+            </div>
           )}
         </div>
       )}
