@@ -72,7 +72,7 @@ function WorkspaceContent() {
     setOnboarded(true);
     setShowOnboarding(false);
     loadReports();
-    navigate(`/${slug}`);
+    navigate(`${basePath}/${slug}`);
   };
 
   const toggleStar = async (reportId) => {
@@ -93,7 +93,7 @@ function WorkspaceContent() {
     if (report) {
       setViewingReport(report);
     }
-    navigate(`/${slug}/report/${reportId}`);
+    navigate(`${basePath}/${slug}/report/${reportId}`);
   };
 
   const trashReport = async (reportId) => {
@@ -105,11 +105,14 @@ function WorkspaceContent() {
     }
   };
 
-  const goToChat = () => navigate(`/${slug}/chat`);
-  const goToImport = () => navigate(`/${slug}/import`);
+  const goToChat = () => navigate(`${basePath}/${slug}/chat`);
+  const goToImport = () => navigate(`${basePath}/${slug}/import`);
 
-  // Determine current page from location — strip the slug prefix
-  const subPath = location.pathname.replace(`/${slug}`, "").replace(/^\//, "");
+  // Determine current page from location — strip basePath + slug prefix
+  const subPath = location.pathname
+    .replace(basePath || "", "")
+    .replace(`/${slug}`, "")
+    .replace(/^\//, "");
   const currentPage = subPath.split("/")[0] || "dashboard";
 
   // Load report directly by ID when navigating to a report URL
@@ -133,8 +136,8 @@ function WorkspaceContent() {
 
   const handleSetPage = (p) => {
     if (p !== "report") setViewingReport(null);
-    if (p === "dashboard") navigate(`/${slug}`);
-    else navigate(`/${slug}/${p}`);
+    if (p === "dashboard") navigate(`${basePath}/${slug}`);
+    else navigate(`${basePath}/${slug}/${p}`);
     if (p === "dashboard") loadReports();
   };
 
@@ -230,7 +233,7 @@ function WorkspaceContent() {
               </button>
               {viewingReport && (
                 <button
-                  onClick={() => navigate(`/${slug}/editor/${viewingReport.id}`)}
+                  onClick={() => navigate(`${basePath}/${slug}/editor/${viewingReport.id}`)}
                   style={{
                     background: "none", border: "1px solid var(--mp-border)", cursor: "pointer",
                     color: "var(--mp-text-secondary)", fontSize: 13, borderRadius: "var(--radius-sm)",
