@@ -458,8 +458,8 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
           if (!chartData?.length) return noData;
           // For composed charts without explicit bars/line config, auto-generate from yKeys
           if (!c.bars?.length && !c.line && c.yKeys?.length) {
-            c.bars = c.yKeys.slice(0, -1).map((k, i) => ({ key: k, color: ct.colors[i], name: k }));
-            c.line = { key: c.yKeys[c.yKeys.length - 1], color: ct.colors[c.yKeys.length - 1], name: c.yKeys[c.yKeys.length - 1] };
+            c.bars = c.yKeys.slice(0, -1).map((k, i) => ({ key: k, color: ct.colors[i], name: c.names?.[i] || k }));
+            c.line = { key: c.yKeys[c.yKeys.length - 1], color: ct.colors[c.yKeys.length - 1], name: c.names?.[c.yKeys.length - 1] || c.yKeys[c.yKeys.length - 1] };
           }
           return (
             <ResponsiveContainer width="100%" height={h}>
@@ -485,7 +485,8 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
                 <XAxis dataKey={c.xKey} tick={ct.axis} axisLine={{ stroke: ct.grid }} />
                 <YAxis tick={ct.axis} axisLine={{ stroke: ct.grid }} />
                 <Tooltip contentStyle={ct.tooltip} />
-                {c.yKeys.map((k,i) => <Bar key={k} dataKey={k} fill={remapColor(c.colors?.[i]) || ct.colors[i]} radius={[3,3,0,0]} />)}
+                {c.yKeys.length > 1 && <Legend wrapperStyle={{ fontSize: 11, fontFamily: "'DM Sans'" }} />}
+                {c.yKeys.map((k,i) => <Bar key={k} dataKey={k} fill={remapColor(c.colors?.[i]) || ct.colors[i]} name={c.names?.[i] || k} radius={[3,3,0,0]} />)}
               </BarChart>
             </ResponsiveContainer>
           );

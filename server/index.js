@@ -3699,7 +3699,10 @@ ${feedback || "Améliore cette section : optimise la visualisation (type de grap
 CONSIGNES :
 - Retourne UNIQUEMENT le JSON de la section améliorée.
 - Tu PEUX changer le "type" de visualisation parmi : ${chartTypes}
-- Tu PEUX modifier xKey, yKeys, nameKey, valueKey pour choisir de meilleurs axes.
+- Tu PEUX modifier xKey, yKeys, nameKey, valueKey pour choisir PARMI les colonnes existantes (voir liste ci-dessous).
+- IMPORTANT : xKey et yKeys DOIVENT correspondre exactement aux noms de colonnes des données. Ne les renomme JAMAIS.
+- Pour afficher des libellés lisibles dans les légendes, utilise "config.names" : un tableau de strings dans le même ordre que yKeys.
+  Exemple : si yKeys = ["ca_mensuel", "charges"], tu peux mettre config.names = ["CA Mensuel", "Charges d'exploitation"].
 - Tu PEUX modifier ou créer un objet "config" (avec xKey, yKeys, colors, names).
 - NE modifie PAS les lignes de données (data/dataPreview). Les données restent telles quelles.
 - Améliore : title, insight, type, config, xKey, yKeys si pertinent.
@@ -3729,6 +3732,29 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
     if (section.data_sets) improvedSection.data_sets = section.data_sets;
     delete improvedSection.dataPreview;
     delete improvedSection.dataRowCount;
+    delete improvedSection.availableColumns;
+
+    // Validate AI-provided keys against actual data columns
+    const actualCols = section.data?.length > 0 ? new Set(Object.keys(section.data[0])) : null;
+    if (actualCols) {
+      // If AI renamed xKey to something not in the data, revert to original
+      if (improvedSection.xKey && !actualCols.has(improvedSection.xKey)) {
+        improvedSection.xKey = section.xKey;
+      }
+      // If AI renamed yKeys to labels not in the data, revert but keep AI names as config.names
+      if (improvedSection.yKeys?.length) {
+        const badKeys = improvedSection.yKeys.filter(k => !actualCols.has(k));
+        if (badKeys.length > 0 && section.yKeys?.length) {
+          // AI likely used display names instead of column names — save them as config.names
+          if (!improvedSection.config) improvedSection.config = {};
+          if (!improvedSection.config.names) {
+            improvedSection.config.names = improvedSection.yKeys;
+          }
+          improvedSection.yKeys = section.yKeys;
+        }
+      }
+    }
+
     if (section.xKey && !improvedSection.xKey) improvedSection.xKey = section.xKey;
     if (section.yKeys && !improvedSection.yKeys) improvedSection.yKeys = section.yKeys;
     if (section.nameKey && !improvedSection.nameKey) improvedSection.nameKey = section.nameKey;
