@@ -27,6 +27,7 @@ function WorkspaceContent() {
   const [reports, setReports] = useState({ shared: [], private: [] });
   const [reportsLoading, setReportsLoading] = useState(true);
   const [viewingReport, setViewingReport] = useState(null);
+  const [reportsGenerating, setReportsGenerating] = useState(false);
 
   // Dynamic browser tab title based on workspace product type
   useEffect(() => {
@@ -68,11 +69,37 @@ function WorkspaceContent() {
     setReportsLoading(false);
   };
 
-  const handleOnboardingComplete = () => {
+  const handleOnboardingComplete = (_reports, meta) => {
     setOnboarded(true);
     setShowOnboarding(false);
     loadReports();
     navigate(`${basePath}/${slug}`);
+
+    // Poll for reports that may still be generating (Vercel timeout can cause
+    // the frontend to miss reports the server actually saved).
+    const expectedCount = meta?.expectedReports || 0;
+    if (expectedCount > 0) {
+      setReportsGenerating(true);
+      let polls = 0;
+      const maxPolls = 8; // up to ~24s of polling
+      const poll = setInterval(async () => {
+        polls++;
+        try {
+          const data = await api.getReports();
+          setReports(data);
+          const total = (data.shared?.length || 0) + (data.private?.length || 0);
+          if (total >= expectedCount || polls >= maxPolls) {
+            clearInterval(poll);
+            setReportsGenerating(false);
+          }
+        } catch {
+          if (polls >= maxPolls) {
+            clearInterval(poll);
+            setReportsGenerating(false);
+          }
+        }
+      }, 3000);
+    }
   };
 
   const toggleStar = async (reportId) => {
@@ -209,6 +236,7 @@ function WorkspaceContent() {
           <DashboardPage
             reports={reports}
             reportsLoading={reportsLoading}
+            reportsGenerating={reportsGenerating}
             toggleStar={toggleStar}
             trashReport={trashReport}
             openReport={openReport}
