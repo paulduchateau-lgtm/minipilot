@@ -19,6 +19,37 @@ function getIcon(iconName) {
   return ICON_MAP[iconName] || BarChart3;
 }
 
+// ── TheFork brand tokens ───────────────────────────────────────────
+const TF = {
+  deepGreen:  "#002925",
+  mint:       "#C2FEB3",
+  cream:      "#FFFCF0",
+  paper:      "#FAFAF7",
+  white:      "#FFFFFF",
+  ink900:     "#1A1A1A",
+  ink700:     "#3D3D3D",
+  ink500:     "#737373",
+  ink300:     "#BFBFBF",
+  ink100:     "#F2F2F2",
+  positive:   "#1F8A3B",
+  negative:   "#C0392B",
+  radius:     16,
+  radiusSm:   10,
+  radiusPill: 999,
+};
+
+// ── TheFork Fork Logo SVG ──────────────────────────────────────────
+function TheForkLogo({ size = 28, color = TF.deepGreen }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="20" cy="20" r="20" fill={color} />
+      <path d="M14 10 L14 22 Q14 28 20 30 Q26 28 26 22 L26 10" stroke={TF.mint} strokeWidth="2.5" fill="none" strokeLinecap="round" />
+      <line x1="14" y1="16" x2="26" y2="16" stroke={TF.mint} strokeWidth="2" strokeLinecap="round" />
+      <line x1="20" y1="10" x2="20" y2="16" stroke={TF.mint} strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default function PublicReportPage() {
   const { token } = useParams();
   const { theme, toggle: toggleTheme } = useTheme();
@@ -85,12 +116,15 @@ export default function PublicReportPage() {
     }
   };
 
+  // ── Detect TheFork tenant ──────────────────────────────────────
+  const isTheFork = data?.tenant === "thefork";
+
   if (loading) {
     return (
-      <div style={pageStyle}>
+      <div style={isTheFork ? tfPageStyle : pageStyle}>
         <div style={{ textAlign: "center", padding: 80 }}>
-          <Loader2 size={24} color="var(--mp-accent)" style={{ animation: "spin 1s linear infinite" }} />
-          <p style={{ color: "var(--mp-text-muted)", fontSize: 14, marginTop: 12 }}>Chargement du rapport...</p>
+          <Loader2 size={24} color={isTheFork ? TF.deepGreen : "var(--mp-accent)"} style={{ animation: "spin 1s linear infinite" }} />
+          <p style={{ color: isTheFork ? TF.ink500 : "var(--mp-text-muted)", fontSize: 14, marginTop: 12 }}>Chargement du rapport...</p>
         </div>
       </div>
     );
@@ -98,11 +132,11 @@ export default function PublicReportPage() {
 
   if (error) {
     return (
-      <div style={pageStyle}>
+      <div style={isTheFork ? tfPageStyle : pageStyle}>
         <div style={{ textAlign: "center", padding: 80 }}>
-          <FileText size={32} color="var(--mp-text-muted)" />
-          <p style={{ fontSize: 16, marginTop: 12, fontWeight: 400 }}>{error}</p>
-          <p style={{ fontSize: 13, color: "var(--mp-text-muted)", marginTop: 4 }}>
+          <FileText size={32} color={isTheFork ? TF.ink500 : "var(--mp-text-muted)"} />
+          <p style={{ fontSize: 16, marginTop: 12, fontWeight: 400, color: isTheFork ? TF.ink900 : undefined }}>{error}</p>
+          <p style={{ fontSize: 13, color: isTheFork ? TF.ink500 : "var(--mp-text-muted)", marginTop: 4 }}>
             Ce lien est peut-être invalide ou le rapport a été dépublié.
           </p>
         </div>
@@ -113,7 +147,7 @@ export default function PublicReportPage() {
   const { report, comments = [], publishedAt } = data;
   const kpis = typeof report.kpis === "string" ? JSON.parse(report.kpis) : (report.kpis || []);
   const sections = typeof report.sections === "string" ? JSON.parse(report.sections) : (report.sections || []);
-  const color = report.color || "var(--color-amber, #C4872E)";
+  const color = report.color || (isTheFork ? TF.deepGreen : "var(--color-amber, #C4872E)");
   const Icon = getIcon(report.icon);
 
   const commentsBySection = {};
@@ -127,6 +161,304 @@ export default function PublicReportPage() {
     }
   }
 
+  // ── TheFork branded layout ──────────────────────────────────────
+  if (isTheFork) {
+    return (
+      <div style={tfPageStyle}>
+        {/* TheFork Header Bar */}
+        <div style={{
+          background: TF.deepGreen,
+          padding: "14px 24px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          position: "sticky", top: 0, zIndex: 50,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <TheForkLogo size={32} color={TF.white} />
+            <span style={{
+              fontFamily: "'DM Sans', sans-serif",
+              fontSize: 15, fontWeight: 500, color: TF.white,
+              letterSpacing: "-0.01em",
+            }}>TheFork</span>
+            <span style={{
+              fontSize: 10, fontWeight: 400,
+              color: TF.mint, letterSpacing: "0.08em",
+              textTransform: "uppercase", marginLeft: 6,
+              fontFamily: "'JetBrains Mono', monospace",
+            }}>RAPPORT</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {publishedAt && (
+              <span style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 10, color: "rgba(255,255,255,0.6)",
+                letterSpacing: "0.1em", textTransform: "uppercase",
+              }}>
+                {new Date(publishedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+              </span>
+            )}
+            <button
+              onClick={handleExportPdf}
+              disabled={pdfLoading}
+              style={{
+                background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: TF.radiusSm, padding: "6px 12px", cursor: pdfLoading ? "wait" : "pointer",
+                display: "flex", alignItems: "center", gap: 5,
+                color: TF.white, fontSize: 11, fontFamily: "inherit",
+                opacity: pdfLoading ? 0.6 : 1,
+              }}
+            >
+              {pdfLoading ? <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} /> : <Download size={12} />}
+              PDF
+            </button>
+            <button
+              onClick={toggleTheme}
+              style={{
+                background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: TF.radiusSm, padding: "6px 10px", cursor: "pointer",
+                display: "flex", alignItems: "center",
+                color: TF.white, fontSize: 11, fontFamily: "inherit",
+              }}
+              title={theme === "dark" ? "Mode clair" : "Mode sombre"}
+            >
+              {theme === "dark" ? <Sun size={12} /> : <Moon size={12} />}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px 80px" }}>
+          {/* Report header */}
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: TF.radiusSm,
+                background: TF.deepGreen + "12",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <Icon size={20} color={TF.deepGreen} />
+              </div>
+              <h1 style={{
+                fontSize: 26, fontWeight: 500, margin: 0,
+                fontFamily: "'DM Sans', sans-serif",
+                color: TF.ink900, letterSpacing: "-0.02em",
+              }}>{report.title}</h1>
+            </div>
+            {report.subtitle && (
+              <p style={{ fontSize: 14, color: TF.ink500, margin: "4px 0 0 52px" }}>{report.subtitle}</p>
+            )}
+            {report.objective && (
+              <p style={{ fontSize: 13, color: TF.ink700, margin: "8px 0 0 52px", fontStyle: "italic" }}>{report.objective}</p>
+            )}
+          </div>
+
+          {/* KPIs — alternating deep green / white cards */}
+          {kpis.length > 0 && (
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${Math.min(kpis.length, 4)}, 1fr)`,
+              gap: 14, marginBottom: 32,
+            }}>
+              {kpis.map((k, i) => {
+                const isGreenCard = i === 0 || i === 3;
+                return (
+                  <div key={i} style={{
+                    background: isGreenCard ? TF.deepGreen : TF.white,
+                    border: isGreenCard ? "none" : `1px solid ${TF.ink100}`,
+                    borderRadius: TF.radius, padding: "18px 22px",
+                    boxShadow: isGreenCard ? "none" : "0 1px 3px rgba(0,0,0,0.04)",
+                  }}>
+                    <div style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em",
+                      color: isGreenCard ? TF.mint : TF.ink500,
+                      marginBottom: 8,
+                    }}>{k.label}</div>
+                    <div style={{
+                      fontSize: 24, fontWeight: 500,
+                      color: isGreenCard ? TF.white : TF.ink900,
+                    }}>{k.value}</div>
+                    {k.trend && (
+                      <div style={{
+                        fontSize: 11, marginTop: 6,
+                        display: "flex", alignItems: "center", gap: 4,
+                      }}>
+                        <span style={{
+                          background: k.bad
+                            ? "rgba(192,57,43,0.1)"
+                            : isGreenCard ? "rgba(194,254,179,0.2)" : "rgba(31,138,59,0.1)",
+                          color: k.bad
+                            ? (isGreenCard ? "#FF8A80" : TF.negative)
+                            : (isGreenCard ? TF.mint : TF.positive),
+                          padding: "2px 8px", borderRadius: TF.radiusPill,
+                          fontSize: 10, fontWeight: 500, fontFamily: "'JetBrains Mono', monospace",
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                        }}>
+                          {k.bad ? <ArrowDownRight size={10} /> : <ArrowUpRight size={10} />}
+                          {k.trend}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Sections — 2-column grid with TheFork cards */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(480px, 1fr))",
+            gap: 20,
+          }}>
+            {sections.map((section, i) => {
+              const sectionComments = commentsBySection[i] || [];
+              return (
+                <div key={i} style={{
+                  background: TF.white,
+                  border: `1px solid ${TF.ink100}`,
+                  borderRadius: TF.radius,
+                  padding: 22,
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+                  transition: "box-shadow 0.2s, transform 0.2s",
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,41,37,0.08)";
+                  e.currentTarget.style.transform = "translateY(-1px)";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.04)";
+                  e.currentTarget.style.transform = "none";
+                }}
+                >
+                  {/* Section index tag */}
+                  <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{
+                      background: TF.mint,
+                      color: TF.deepGreen,
+                      fontSize: 10, fontWeight: 500,
+                      padding: "3px 10px", borderRadius: TF.radiusPill,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      textTransform: "uppercase", letterSpacing: "0.08em",
+                    }}>
+                      Section {i + 1}
+                    </span>
+                    {sectionComments.length > 0 && (
+                      <span style={{
+                        background: TF.deepGreen + "12",
+                        color: TF.deepGreen,
+                        fontSize: 10, fontWeight: 500,
+                        padding: "3px 8px", borderRadius: TF.radiusPill,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                      }}>
+                        <MessageSquare size={10} />
+                        {sectionComments.length}
+                      </span>
+                    )}
+                  </div>
+
+                  <RenderSection section={section} index={i} color={TF.deepGreen} />
+
+                  {/* Comments under this section card */}
+                  {sectionComments.length > 0 && (
+                    <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${TF.ink100}` }}>
+                      {sectionComments.map(c => (
+                        <TfMarginComment key={c.id} comment={c} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Comment button / form */}
+                  <div style={{ marginTop: 10 }}>
+                    {commentSection === i ? (
+                      <TfCommentForm
+                        author={commentAuthor}
+                        setAuthor={setCommentAuthor}
+                        body={commentBody}
+                        setBody={setCommentBody}
+                        sending={commentSending}
+                        success={commentSuccess}
+                        onSubmit={handleSubmitComment}
+                        onCancel={() => { setCommentSection(null); setCommentBody(""); }}
+                      />
+                    ) : (
+                      <button onClick={() => setCommentSection(i)} style={tfCommentBtnStyle}>
+                        <MessageSquare size={12} />
+                        Commenter
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* General comments section */}
+          <div style={{
+            marginTop: 48, paddingTop: 24,
+            borderTop: `1px solid ${TF.ink100}`,
+          }}>
+            <h3 style={{
+              fontSize: 15, fontWeight: 500, marginBottom: 16,
+              display: "flex", alignItems: "center", gap: 8,
+              color: TF.ink900,
+            }}>
+              <MessageSquare size={16} color={TF.ink500} />
+              Commentaires généraux
+              {generalComments.length > 0 && (
+                <span style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 10, color: TF.ink500,
+                }}>({generalComments.length})</span>
+              )}
+            </h3>
+
+            {generalComments.map(c => (
+              <TfCommentBubble key={c.id} comment={c} />
+            ))}
+
+            {commentSection === "general" ? (
+              <TfCommentForm
+                author={commentAuthor}
+                setAuthor={setCommentAuthor}
+                body={commentBody}
+                setBody={setCommentBody}
+                sending={commentSending}
+                success={commentSuccess}
+                onSubmit={handleSubmitComment}
+                onCancel={() => { setCommentSection(null); setCommentBody(""); }}
+              />
+            ) : (
+              <button
+                onClick={() => setCommentSection("general")}
+                style={{ ...tfCommentBtnStyle, marginTop: 8 }}
+              >
+                <MessageSquare size={12} />
+                Ajouter un commentaire général
+              </button>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div style={{
+            marginTop: 48, paddingTop: 20, borderTop: `1px solid ${TF.ink100}`,
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <TheForkLogo size={20} />
+              <span style={{ fontSize: 11, color: TF.ink500, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>
+                Propulsé par Pilot
+              </span>
+            </div>
+            <span style={{ fontSize: 10, color: TF.ink300, fontFamily: "'JetBrains Mono', monospace" }}>
+              Document confidentiel
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Default (Pilot) layout ──────────────────────────────────────
   return (
     <div style={pageStyle}>
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "40px 24px 80px" }}>
@@ -345,6 +677,135 @@ export default function PublicReportPage() {
   );
 }
 
+// ── TheFork sub-components ──────────────────────────────────────────
+
+function TfMarginComment({ comment }) {
+  return (
+    <div style={{
+      borderLeft: `2px solid ${TF.deepGreen}`,
+      padding: "6px 10px",
+      marginBottom: 10,
+      fontSize: 12,
+      lineHeight: 1.5,
+    }}>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginBottom: 3,
+      }}>
+        <span style={{ fontWeight: 500, color: TF.deepGreen, fontSize: 11 }}>
+          {comment.author_name || "Anonyme"}
+        </span>
+        <span style={{
+          fontSize: 9, fontFamily: "'JetBrains Mono', monospace",
+          color: TF.ink500, letterSpacing: "0.05em",
+        }}>
+          {new Date(comment.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+        </span>
+      </div>
+      <p style={{ margin: 0, color: TF.ink700, fontSize: 12 }}>
+        {comment.body}
+      </p>
+    </div>
+  );
+}
+
+function TfCommentBubble({ comment }) {
+  return (
+    <div style={{
+      background: TF.white,
+      border: `1px solid ${TF.ink100}`,
+      borderRadius: TF.radiusSm,
+      padding: "10px 14px",
+      marginBottom: 8,
+    }}>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginBottom: 4,
+      }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: TF.ink500 }}>
+          {comment.author_name || "Anonyme"}
+        </span>
+        <span style={{
+          fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
+          color: TF.ink300,
+        }}>
+          {new Date(comment.created_at).toLocaleDateString("fr-FR", {
+            day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+          })}
+        </span>
+      </div>
+      <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5, color: TF.ink900 }}>{comment.body}</p>
+    </div>
+  );
+}
+
+function TfCommentForm({ author, setAuthor, body, setBody, sending, success, onSubmit, onCancel }) {
+  return (
+    <form onSubmit={onSubmit} style={{
+      background: TF.paper,
+      border: `1px solid ${TF.ink100}`,
+      borderRadius: TF.radiusSm, padding: 16,
+    }}>
+      <div style={{ marginBottom: 10 }}>
+        <input
+          type="text"
+          value={author}
+          onChange={e => setAuthor(e.target.value)}
+          placeholder="Votre nom (optionnel)"
+          style={tfInputStyle}
+        />
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <textarea
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          placeholder="Votre commentaire..."
+          required
+          rows={3}
+          style={{ ...tfInputStyle, resize: "vertical", minHeight: 60 }}
+        />
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button
+          type="submit"
+          disabled={sending || !body.trim()}
+          style={{
+            padding: "8px 16px",
+            background: TF.deepGreen,
+            color: TF.white,
+            border: "none", borderRadius: TF.radiusSm,
+            fontSize: 13, fontWeight: 500, fontFamily: "inherit",
+            cursor: sending ? "wait" : "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+            opacity: sending || !body.trim() ? 0.6 : 1,
+          }}
+        >
+          {sending ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Send size={14} />}
+          Envoyer
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          style={{
+            padding: "8px 16px",
+            background: "transparent",
+            color: TF.ink500,
+            border: `1px solid ${TF.ink300}`, borderRadius: TF.radiusSm,
+            fontSize: 13, fontFamily: "inherit", cursor: "pointer",
+          }}
+        >
+          Annuler
+        </button>
+        {success && (
+          <span style={{ fontSize: 12, color: TF.positive }}>{success}</span>
+        )}
+      </div>
+    </form>
+  );
+}
+
+// ── Default (Pilot) sub-components ──────────────────────────────────
+
 function MarginComment({ comment, color }) {
   return (
     <div style={{
@@ -476,6 +937,15 @@ function CommentForm({ author, setAuthor, body, setBody, sending, success, onSub
   );
 }
 
+// ── TheFork page style (always light, cream bg) ─────────────────────
+const tfPageStyle = {
+  minHeight: "100vh",
+  background: TF.paper,
+  color: TF.ink900,
+  fontFamily: "'DM Sans', sans-serif",
+};
+
+// ── Default Pilot page styles ───────────────────────────────────────
 const pageStyle = {
   minHeight: "100vh",
   background: "var(--mp-bg)",
@@ -497,10 +967,36 @@ const inputStyle = {
   boxSizing: "border-box",
 };
 
+const tfInputStyle = {
+  width: "100%",
+  padding: "8px 12px",
+  background: TF.white,
+  border: `1px solid ${TF.ink300}`,
+  borderRadius: TF.radiusSm,
+  fontSize: 13,
+  fontFamily: "inherit",
+  color: TF.ink900,
+  outline: "none",
+  boxSizing: "border-box",
+};
+
 const commentBtnStyle = {
   background: "none",
   border: "none",
   color: "var(--mp-text-muted)",
+  cursor: "pointer",
+  fontSize: 12,
+  fontFamily: "inherit",
+  padding: "4px 0",
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+};
+
+const tfCommentBtnStyle = {
+  background: "none",
+  border: "none",
+  color: TF.ink500,
   cursor: "pointer",
   fontSize: 12,
   fontFamily: "inherit",
