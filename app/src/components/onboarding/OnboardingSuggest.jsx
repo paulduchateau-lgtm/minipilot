@@ -121,7 +121,7 @@ export default function OnboardingSuggest({ onNext, data }) {
     }
 
     setGenerating(false);
-    onNext({ reports: generated.filter(Boolean) });
+    onNext({ reports: generated.filter(Boolean), expectedReports: selectedList.length });
   };
 
   if (loading) {

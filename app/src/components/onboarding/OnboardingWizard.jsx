@@ -133,7 +133,7 @@ export default function OnboardingWizard({ onComplete }) {
     setCompletedSteps(newCompleted);
 
     if (currentStep === "suggest") {
-      onComplete(data?.reports || []);
+      onComplete(data?.reports || [], { expectedReports: data?.expectedReports || 0 });
       return;
     }
 

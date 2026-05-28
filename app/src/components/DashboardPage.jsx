@@ -3,7 +3,7 @@ import { Star, BookOpen, FileText, MessageSquare, Activity, Loader2, FileUp, Glo
 import ReportCard from "./ReportCard";
 import { useWorkspaceApi } from "../lib/WorkspaceContext";
 
-export default function DashboardPage({ reports, reportsLoading, toggleStar, trashReport, openReport, goToChat, goToImport }) {
+export default function DashboardPage({ reports, reportsLoading, reportsGenerating, toggleStar, trashReport, openReport, goToChat, goToImport }) {
   const api = useWorkspaceApi();
   const sharedReports = reports.shared || [];
   const allPrivate = reports.private || [];
@@ -54,6 +54,20 @@ export default function DashboardPage({ reports, reportsLoading, toggleStar, tra
           </button>
         </div>
       </div>
+
+      {/* Generation in progress banner */}
+      {reportsGenerating && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          background: "var(--mp-accent-dim)", border: "1px solid var(--mp-accent)",
+          borderRadius: "var(--radius-md)", padding: "12px 18px", marginBottom: 18,
+        }}>
+          <Loader2 size={16} color="var(--mp-accent)" style={{ animation: "spin 1s linear infinite" }} />
+          <span style={{ fontSize: 13, color: "var(--mp-text-secondary)", fontFamily: "var(--font-body)" }}>
+            Génération des rapports en cours… Les données s'afficheront automatiquement.
+          </span>
+        </div>
+      )}
 
       {/* Overview KPIs */}
       {overviewKpis.length > 0 && (
