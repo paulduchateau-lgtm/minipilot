@@ -3,13 +3,48 @@ import { Send, MessageSquare, Database, FileText, Star, StarOff, Loader2, Sparkl
 import { useWorkspaceApi } from "../lib/WorkspaceContext";
 import RenderSection from "./RenderSection";
 
-const SUGGESTIONS = [
-  "Quels sont les risques avec la criticite la plus elevee ?",
-  "Quelle est la repartition des risques par niveau de criticite ?",
-  "Quelle direction concentre le plus de risques critiques ?",
-  "Quels risques critiques n'ont pas de plan d'action ?",
-  "Construis un dashboard COMEX synthetisant les risques majeurs",
+const FALLBACK_SUGGESTIONS = [
+  "Quelles sont les tendances principales dans mes données ?",
+  "Construis un tableau de bord synthétique avec les indicateurs clés",
+  "Quelle est la répartition par catégorie ?",
+  "Quels sont les points d'attention ou anomalies dans les données ?",
+  "Génère un rapport complet avec graphiques et recommandations",
 ];
+
+function buildSuggestions(context, tables) {
+  if (!context?.objectives && !tables?.length) return FALLBACK_SUGGESTIONS;
+
+  const suggestions = [];
+  const obj = context?.objectives || "";
+  const industry = context?.industry || "";
+  const tableNames = (tables || []).map(t => t.name || t).filter(Boolean);
+
+  // Suggestion based on objectives
+  if (obj) {
+    const shortObj = obj.length > 80 ? obj.slice(0, 80) + "…" : obj;
+    suggestions.push(`Analyse les données par rapport à l'objectif : ${shortObj}`);
+  }
+
+  // Suggestions based on table names
+  if (tableNames.length > 0) {
+    const sample = tableNames.slice(0, 3).join(", ");
+    suggestions.push(`Quels sont les indicateurs clés à suivre dans ${sample} ?`);
+    if (tableNames.length > 1) {
+      suggestions.push(`Croise les données de ${tableNames[0]} et ${tableNames[1]} pour trouver des corrélations`);
+    }
+  }
+
+  // Industry-specific suggestions
+  if (industry) {
+    suggestions.push(`Construis un dashboard ${industry} avec les métriques essentielles`);
+  }
+
+  // Always add a generic report builder
+  suggestions.push("Génère un rapport complet avec KPIs, graphiques et recommandations");
+
+  // Top 5 max
+  return suggestions.slice(0, 5);
+}
 
 export default function ChatPage({ reports, toggleStar, openReport, onReportGenerated }) {
   const api = useWorkspaceApi();
@@ -19,11 +54,25 @@ export default function ChatPage({ reports, toggleStar, openReport, onReportGene
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [suggestions, setSuggestions] = useState(FALLBACK_SUGGESTIONS);
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Load sessions on mount
-  useEffect(() => { loadSessions(); }, []);
+  // Load sessions + context-aware suggestions on mount
+  useEffect(() => { loadSessions(); loadSuggestions(); }, []);
+
+  const loadSuggestions = async () => {
+    try {
+      const [context, stats] = await Promise.all([
+        api.getContext().catch(() => null),
+        api.getDataStats().catch(() => null),
+      ]);
+      const tables = stats?.tables || [];
+      setSuggestions(buildSuggestions(context, tables));
+    } catch {
+      // keep fallback
+    }
+  };
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   useEffect(() => { inputRef.current?.focus(); }, [activeSessionId]);
 
@@ -397,7 +446,7 @@ export default function ChatPage({ reports, toggleStar, openReport, onReportGene
                 </p>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", maxWidth: 640 }}>
-                {SUGGESTIONS.map(q => (
+                {suggestions.map(q => (
                   <button
                     key={q}
                     onClick={() => handleSend(q)}
