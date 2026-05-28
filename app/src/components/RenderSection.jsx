@@ -15,6 +15,10 @@ function humanize(key) {
   return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
 }
 
+function safeId(str) {
+  return String(str).replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
 function formatValue(val, fmt) {
   if (fmt === "money") return typeof val === "number" ? (val >= 1e6 ? `${(val/1e6).toFixed(1)}M €` : val >= 1000 ? `${Math.round(val/1000)}k €` : `${val} €`) : val;
   if (fmt === "eur") return typeof val === "number" ? `${val} €` : val;
@@ -534,7 +538,7 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
               <AreaChart data={chartData}>
                 <defs>
                   {c.yKeys.map((k,i) => (
-                    <linearGradient key={k} id={`ag_${k}`} x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient key={k} id={`ag_${safeId(k)}`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={remapColor(c.colors?.[i]) || ct.colors[i]} stopOpacity={0.25} />
                       <stop offset="95%" stopColor={remapColor(c.colors?.[i]) || ct.colors[i]} stopOpacity={0} />
                     </linearGradient>
@@ -545,7 +549,7 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
                 <YAxis tick={ct.axis} axisLine={{ stroke: ct.grid }} />
                 <Tooltip contentStyle={ct.tooltip} />
                 <Legend wrapperStyle={{ fontSize: 11, fontFamily: "'DM Sans'" }} />
-                {c.yKeys.map((k,i) => <Area key={k} type="monotone" dataKey={k} stroke={remapColor(c.colors?.[i]) || ct.colors[i]} fill={`url(#ag_${k})`} name={c.names?.[i] || humanize(k)} strokeWidth={2} />)}
+                {c.yKeys.map((k,i) => <Area key={k} type="monotone" dataKey={k} stroke={remapColor(c.colors?.[i]) || ct.colors[i]} fill={`url(#ag_${safeId(k)})`} name={c.names?.[i] || humanize(k)} strokeWidth={2} />)}
               </AreaChart>
             </ResponsiveContainer>
           );
