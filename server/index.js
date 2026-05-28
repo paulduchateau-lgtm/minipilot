@@ -23,6 +23,7 @@ import { materialize, getMaterializedContext } from './materializer.js';
 import { streamAnthropicSSE } from './stream.js';
 import { registerInterpretRoutes } from './interpret.js';
 import { executeReportSpec } from './query-builder.js';
+import { analyzeSheetRelationships, buildSheetContextBlock, buildSheetSummary } from './sheet-analyzer.js';
 import cron from 'node-cron';
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
@@ -261,6 +262,7 @@ async function initDatabase() {
   try { await db.executeMultiple("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'member'"); } catch {}
   try { await db.executeMultiple("ALTER TABLE users ADD COLUMN tenant TEXT"); } catch {}
   try { await db.executeMultiple("ALTER TABLE workspaces ADD COLUMN tenant TEXT DEFAULT 'default'"); } catch {}
+  try { await db.executeMultiple("ALTER TABLE workspaces ADD COLUMN sheet_analysis TEXT"); } catch {}
 
   // Backfill: if data exists but no workspaces, create a default workspace
   const wsCountRow = await dbGet("SELECT COUNT(*) AS cnt FROM workspaces");
@@ -310,8 +312,9 @@ async function initDatabase() {
 await initDatabase();
 
 // ─── Expertise identity builder ──────────────────────────────────────────────
-// Returns the LLM identity sentence from project_context.expertise_prompt,
-// falling back to a generic data analyst prompt.
+// Returns the LLM identity block from project_context.expertise_prompt,
+// falling back to a generic data analyst prompt. When a full expertise_prompt
+// is set (e.g. The Fork brief), it is returned verbatim — not truncated to one line.
 
 const DEFAULT_EXPERTISE = "Tu es Pilot, un assistant analytique expert en data analytics.";
 
@@ -319,6 +322,17 @@ function buildExpertiseIdentity(context) {
   if (context?.expertise_prompt) return context.expertise_prompt;
   if (context?.industry) return `Tu es Pilot, un assistant analytique expert en ${context.industry}.`;
   return DEFAULT_EXPERTISE;
+}
+
+// Load sheet analysis from workspace and build the context block for prompts.
+async function loadSheetContext(workspaceId) {
+  if (!workspaceId) return "";
+  const ws = await dbGet("SELECT sheet_analysis FROM workspaces WHERE id = ?", workspaceId);
+  if (!ws?.sheet_analysis) return "";
+  try {
+    const analysis = JSON.parse(ws.sheet_analysis);
+    return buildSheetContextBlock(analysis);
+  } catch { return ""; }
 }
 
 // ─── AI clients ──────────────────────────────────────────────────────────────
@@ -1501,30 +1515,47 @@ app.post("/api/transform", async (req, res) => {
     }
 
     const tableSummaries = [];
-    const tablesByCommonKey = {}; // key: column_name -> [{tableName, rows}]
+    const tablesByCommonKey = {};
+    const allSheetMeta = [];
 
     for (const file of files) {
-      const rawRowsDb = await dbAll("SELECT row_data FROM data_rows WHERE file_id = ?", file.id);
-      const rawRows = rawRowsDb.map(r => JSON.parse(r.row_data));
+      // Preserve sheet_name for multi-sheet analysis
+      const rawRowsDb = await dbAll("SELECT row_data, sheet_name FROM data_rows WHERE file_id = ?", file.id);
+      const rawRows = rawRowsDb.map(r => ({
+        ...JSON.parse(r.row_data),
+        _sheet: r.sheet_name || "sheet1",
+      }));
 
       if (rawRows.length === 0) continue;
 
-      // Remove completely empty rows
+      // Remove completely empty rows (ignoring _sheet when checking emptiness)
       const nonEmptyRows = rawRows.filter(row =>
-        Object.values(row).some(v => v !== null && v !== undefined && v !== "")
+        Object.entries(row).some(([k, v]) => k !== "_sheet" && v !== null && v !== undefined && v !== "")
       );
       if (nonEmptyRows.length === 0) continue;
 
-      // Normalize column names
-      const originalKeys = Object.keys(nonEmptyRows[0]);
+      // Collect per-sheet metadata for relationship analysis
+      const sheetGroups = {};
+      for (const row of nonEmptyRows) {
+        const s = row._sheet;
+        if (!sheetGroups[s]) sheetGroups[s] = { name: s, columns: new Set(), rowCount: 0 };
+        sheetGroups[s].rowCount++;
+        Object.keys(row).filter(k => k !== "_sheet").forEach(k => sheetGroups[s].columns.add(k));
+      }
+      for (const sg of Object.values(sheetGroups)) {
+        allSheetMeta.push({ name: sg.name, columns: [...sg.columns], rowCount: sg.rowCount });
+      }
+
+      // Normalize column names (keep _sheet as-is)
+      const originalKeys = Object.keys(nonEmptyRows[0]).filter(k => k !== "_sheet");
       const keyMap = {};
       for (const k of originalKeys) {
         keyMap[k] = normalizeColumnName(k);
       }
 
-      // Remap rows
+      // Remap rows, preserving _sheet
       const remapped = nonEmptyRows.map(row => {
-        const newRow = {};
+        const newRow = { _sheet: row._sheet };
         for (const [origKey, normKey] of Object.entries(keyMap)) {
           let val = row[origKey];
           if (typeof val === "string") val = val.trim();
@@ -1533,21 +1564,25 @@ app.post("/api/transform", async (req, res) => {
         return newRow;
       });
 
-      // Detect column types from a sample
+      // Detect column types from a sample (exclude _sheet)
       const normalizedKeys = Object.values(keyMap);
-      const columns = normalizedKeys.map(key => {
-        const sampleVals = remapped
-          .map(r => r[key])
-          .filter(v => v !== null && v !== undefined && v !== "")
-          .slice(0, 50);
-        const type = detectType(sampleVals);
-        return { name: key, type, nullable: remapped.some(r => r[key] === null || r[key] === undefined || r[key] === "") };
-      });
+      const columns = [
+        { name: "_sheet", type: "string", nullable: false },
+        ...normalizedKeys.map(key => {
+          const sampleVals = remapped
+            .map(r => r[key])
+            .filter(v => v !== null && v !== undefined && v !== "")
+            .slice(0, 50);
+          const type = detectType(sampleVals);
+          return { name: key, type, nullable: remapped.some(r => r[key] === null || r[key] === undefined || r[key] === "") };
+        }),
+      ];
 
       // Convert types in rows
       const converted = remapped.map(row => {
-        const newRow = {};
+        const newRow = { _sheet: row._sheet };
         for (const col of columns) {
+          if (col.name === "_sheet") continue;
           let val = row[col.name];
           if (val === null || val === undefined || val === "") {
             newRow[col.name] = null;
@@ -1595,6 +1630,16 @@ app.post("/api/transform", async (req, res) => {
       }
     }
 
+    // ── Sheet relationship analysis ──
+    const sheetAnalysis = analyzeSheetRelationships(allSheetMeta);
+
+    // Persist analysis on the workspace for prompt injection
+    const workspaceId = files[0]?.workspace_id;
+    if (workspaceId && sheetAnalysis.hasMultiSheetPatterns) {
+      await dbRun("UPDATE workspaces SET sheet_analysis = ? WHERE id = ?",
+        JSON.stringify(sheetAnalysis), workspaceId);
+    }
+
     // Identify common columns for potential merge
     const commonCols = Object.entries(tablesByCommonKey)
       .filter(([, tables]) => tables.length > 1)
@@ -1611,7 +1656,6 @@ app.post("/api/transform", async (req, res) => {
 
     const response = {
       tables: tableSummaries,
-      // Summary fields expected by OnboardingTransform component
       cleanedRows: totalRows,
       typedCols: totalCols,
       numericCols,
@@ -1619,6 +1663,7 @@ app.post("/api/transform", async (req, res) => {
       dateCols,
       nullValues: totalNulls,
       mergedColumn: commonCols.length > 0 ? commonCols[0].column : null,
+      sheetAnalysis: sheetAnalysis.hasMultiSheetPatterns ? sheetAnalysis : undefined,
     };
     if (commonCols.length > 0) {
       response.mergeOpportunities = commonCols;
@@ -2588,12 +2633,13 @@ app.post("/api/w/:slug/transform", async (req, res) => {
 
     const tableSummaries = [];
     const tablesByCommonKey = {};
+    const allSheetMeta = [];
+    const parsedSheets = [];
 
+    // ── Phase 1: Parse all sheets (collect in memory, no DB inserts yet) ──
     for (const file of files) {
-      // Group rows by sheet — each sheet becomes its own clean_data table
       const sheets = await dbAll("SELECT DISTINCT sheet_name FROM data_rows WHERE file_id = ?", file.id);
       const sheetNames = sheets.map(s => s.sheet_name).filter(Boolean);
-      // If no sheet_name (CSV), treat as single sheet
       const sheetsToProcess = sheetNames.length > 0 ? sheetNames : [null];
 
       for (const sheetName of sheetsToProcess) {
@@ -2609,8 +2655,15 @@ app.post("/api/w/:slug/transform", async (req, res) => {
         const keyMap = {};
         for (const k of originalKeys) keyMap[k] = normalizeColumnName(k);
 
+        const displayName = sheetName || path.basename(file.name, path.extname(file.name));
+        allSheetMeta.push({
+          name: displayName,
+          columns: Object.values(keyMap),
+          rowCount: nonEmptyRows.length,
+        });
+
         const remapped = nonEmptyRows.map(row => {
-          const newRow = {};
+          const newRow = { _sheet: sheetName || "sheet1" };
           for (const [origKey, normKey] of Object.entries(keyMap)) {
             let val = row[origKey];
             if (typeof val === "string") val = val.trim();
@@ -2620,15 +2673,19 @@ app.post("/api/w/:slug/transform", async (req, res) => {
         });
 
         const normalizedKeys = Object.values(keyMap);
-        const columns = normalizedKeys.map(key => {
-          const sampleVals = remapped.map(r => r[key]).filter(v => v !== null && v !== undefined && v !== "").slice(0, 50);
-          const type = detectType(sampleVals);
-          return { name: key, type, nullable: remapped.some(r => r[key] === null || r[key] === undefined || r[key] === "") };
-        });
+        const columns = [
+          { name: "_sheet", type: "string", nullable: false },
+          ...normalizedKeys.map(key => {
+            const sampleVals = remapped.map(r => r[key]).filter(v => v !== null && v !== undefined && v !== "").slice(0, 50);
+            const type = detectType(sampleVals);
+            return { name: key, type, nullable: remapped.some(r => r[key] === null || r[key] === undefined || r[key] === "") };
+          }),
+        ];
 
         const converted = remapped.map(row => {
-          const newRow = {};
+          const newRow = { _sheet: row._sheet };
           for (const col of columns) {
+            if (col.name === "_sheet") continue;
             let val = row[col.name];
             if (val === null || val === undefined || val === "") newRow[col.name] = null;
             else if (col.type === "number") newRow[col.name] = parseFrenchNumber(val);
@@ -2638,33 +2695,113 @@ app.post("/api/w/:slug/transform", async (req, res) => {
           return newRow;
         });
 
-        // Use sheet name as table name if multi-sheet, otherwise file name
-        const baseName = sheetName
+        const defaultTableName = sheetName
           ? normalizeColumnName(sheetName)
           : normalizeColumnName(path.basename(file.name, path.extname(file.name)));
-        const tableName = baseName;
-        const colsJson = JSON.stringify(columns);
 
-        // Batch insert for performance (critical for Turso over network)
-        const cleanStmts = converted.map(row => ({
-          sql: "INSERT INTO clean_data (table_name, columns, row_data, source_file_id, workspace_id) VALUES (?, ?, ?, ?, ?)",
-          args: [tableName, colsJson, JSON.stringify(row), file.id, workspaceId],
-        }));
-        if (cleanStmts.length > 0) await dbBatch(cleanStmts);
-
-        const colStats = columns.map(col => {
-          const vals = converted.map(r => r[col.name]).filter(v => v !== null && v !== undefined && v !== "");
-          const nullCount = converted.length - vals.length;
-          const sampleValues = col.type === "string" ? [...new Set(vals)].slice(0, 5) : vals.slice(0, 5);
-          return { name: col.name, type: col.type, nullCount, sampleValues };
+        parsedSheets.push({
+          displayName,
+          defaultTableName,
+          fileId: file.id,
+          fileName: file.name,
+          columns,
+          converted,
         });
-        tableSummaries.push({ name: tableName, columns: colStats, rowCount: converted.length });
+      }
+    }
 
-        for (const col of columns) {
-          if (!tablesByCommonKey[col.name]) tablesByCommonKey[col.name] = [];
-          tablesByCommonKey[col.name].push(tableName);
+    // ── Phase 2: Analyze relationships & build merge map ──
+    const sheetAnalysis = analyzeSheetRelationships(allSheetMeta);
+    const mergeMap = new Map();
+    const groupUnifiedColumns = new Map();
+
+    if (sheetAnalysis.hasMultiSheetPatterns) {
+      for (const group of sheetAnalysis.groups) {
+        let mergedName;
+        if (group.commonPrefix) {
+          mergedName = normalizeColumnName(group.commonPrefix);
+        } else {
+          const firstSheet = parsedSheets.find(p => p.displayName === group.sheets[0]);
+          mergedName = firstSheet
+            ? normalizeColumnName(path.basename(firstSheet.fileName, path.extname(firstSheet.fileName)))
+            : "merged_data";
+        }
+        for (const name of group.sheets) mergeMap.set(name, mergedName);
+      }
+
+      // Compute unified column schema per merged group
+      const colMaps = new Map();
+      for (const parsed of parsedSheets) {
+        const mergedName = mergeMap.get(parsed.displayName);
+        if (!mergedName) continue;
+        if (!colMaps.has(mergedName)) colMaps.set(mergedName, new Map());
+        const cm = colMaps.get(mergedName);
+        for (const col of parsed.columns) {
+          if (!cm.has(col.name)) {
+            cm.set(col.name, { ...col });
+          } else {
+            const existing = cm.get(col.name);
+            if (existing.type !== col.type) existing.type = "string";
+            if (col.nullable) existing.nullable = true;
+          }
         }
       }
+      for (const [name, cm] of colMaps) {
+        const cols = [];
+        if (cm.has("_sheet")) { cols.push(cm.get("_sheet")); cm.delete("_sheet"); }
+        for (const c of cm.values()) cols.push(c);
+        groupUnifiedColumns.set(name, cols);
+      }
+    }
+
+    // ── Phase 3: Insert into clean_data (merged or standalone) ──
+    for (const parsed of parsedSheets) {
+      const mergedName = mergeMap.get(parsed.displayName);
+      const tableName = mergedName || parsed.defaultTableName;
+      const columns = mergedName
+        ? groupUnifiedColumns.get(mergedName)
+        : parsed.columns;
+      const colsJson = JSON.stringify(columns);
+
+      const cleanStmts = parsed.converted.map(row => ({
+        sql: "INSERT INTO clean_data (table_name, columns, row_data, source_file_id, workspace_id) VALUES (?, ?, ?, ?, ?)",
+        args: [tableName, colsJson, JSON.stringify(row), parsed.fileId, workspaceId],
+      }));
+      if (cleanStmts.length > 0) await dbBatch(cleanStmts);
+
+      const colStats = columns.map(col => {
+        const vals = parsed.converted.map(r => r[col.name]).filter(v => v !== null && v !== undefined && v !== "");
+        const nullCount = parsed.converted.length - vals.length;
+        const sampleValues = col.type === "string" ? [...new Set(vals)].slice(0, 5) : vals.slice(0, 5);
+        return { name: col.name, type: col.type, nullCount, sampleValues };
+      });
+      tableSummaries.push({ name: tableName, columns: colStats, rowCount: parsed.converted.length, merged: !!mergedName });
+
+      for (const col of columns) {
+        if (!tablesByCommonKey[col.name]) tablesByCommonKey[col.name] = [];
+        if (!tablesByCommonKey[col.name].includes(tableName)) tablesByCommonKey[col.name].push(tableName);
+      }
+    }
+
+    // Consolidate summaries for merged tables
+    const consolidatedSummaries = [];
+    const seenTables = new Map();
+    for (const s of tableSummaries) {
+      if (seenTables.has(s.name)) {
+        seenTables.get(s.name).rowCount += s.rowCount;
+      } else {
+        const entry = { ...s };
+        seenTables.set(s.name, entry);
+        consolidatedSummaries.push(entry);
+      }
+    }
+
+    // Persist sheet analysis
+    if (sheetAnalysis.hasMultiSheetPatterns) {
+      await dbRun("UPDATE workspaces SET sheet_analysis = ? WHERE id = ?",
+        JSON.stringify(sheetAnalysis), workspaceId);
+    } else {
+      await dbRun("UPDATE workspaces SET sheet_analysis = NULL WHERE id = ?", workspaceId);
     }
 
     await dbRun("UPDATE workspaces SET row_count = (SELECT COUNT(*) FROM clean_data WHERE workspace_id = ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -2674,11 +2811,11 @@ app.post("/api/w/:slug/transform", async (req, res) => {
     await materialize(dbGet, dbAll, dbRun, dbBatch, workspaceId);
 
     const commonCols = Object.entries(tablesByCommonKey).filter(([, tables]) => tables.length > 1).map(([col, tables]) => ({ column: col, tables }));
-    const totalRows = tableSummaries.reduce((s, t) => s + t.rowCount, 0);
-    const allCols = tableSummaries.flatMap(t => t.columns);
+    const totalRows = consolidatedSummaries.reduce((s, t) => s + t.rowCount, 0);
+    const allCols = consolidatedSummaries.flatMap(t => t.columns);
 
     const response = {
-      tables: tableSummaries,
+      tables: consolidatedSummaries,
       cleanedRows: totalRows,
       typedCols: allCols.length,
       numericCols: allCols.filter(c => c.type === "number").length,
@@ -2686,6 +2823,7 @@ app.post("/api/w/:slug/transform", async (req, res) => {
       dateCols: allCols.filter(c => c.type === "date").length,
       nullValues: allCols.reduce((s, c) => s + (c.nullCount || 0), 0),
       mergedColumn: commonCols.length > 0 ? commonCols[0].column : null,
+      sheetAnalysis: sheetAnalysis.hasMultiSheetPatterns ? sheetAnalysis : undefined,
     };
     if (commonCols.length > 0) response.mergeOpportunities = commonCols;
     res.json(response);
@@ -2764,10 +2902,10 @@ app.post("/api/w/:slug/ai/suggest-reports", async (req, res) => {
   try {
     const workspaceId = req.workspace.id;
 
-    // Load materialized views + project context in parallel (1 query each, no raw data)
-    const [context, mv] = await Promise.all([
+    const [context, mv, sheetCtx] = await Promise.all([
       dbGet("SELECT * FROM project_context WHERE workspace_id = ?", workspaceId),
       getMaterializedContext(dbAll, workspaceId),
+      loadSheetContext(workspaceId),
     ]);
 
     if (!mv.hasViews) {
@@ -2782,7 +2920,7 @@ app.post("/api/w/:slug/ai/suggest-reports", async (req, res) => {
 
 CONTEXTE PROJET :
 ${contextText}
-
+${sheetCtx ? `\n${sheetCtx}\n` : ""}
 SCHEMA :
 ${mv.schemaText}
 
@@ -2798,6 +2936,9 @@ ${mv.anomaliesText}
 Ta mission : suggérer 5 à 8 rapports analytiques pertinents pour ces données.
 Chaque suggestion doit être directement exploitable avec les colonnes disponibles.
 Base-toi uniquement sur les faits ci-dessus. Ne fabrique pas de données.
+${sheetCtx ? `\nIMPORTANT : Des variantes multi-feuilles ont été détectées (voir STRUCTURE MULTI-FEUILLES ci-dessus).
+Tu DOIS inclure au moins 2 rapports comparatifs qui mettent en regard les différentes variantes.
+Utilise le type "grouped_bar" ou "table" pour ces rapports comparatifs, avec "_sheet" comme dimension de regroupement.` : ""}
 
 Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans explication :
 {
@@ -2838,10 +2979,11 @@ app.post("/api/w/:slug/ai/generate-report", async (req, res) => {
 
     const workspaceId = req.workspace.id;
 
-    // Load materialized views + context (no raw data loaded)
-    const [context, mv] = await Promise.all([
+    // Load materialized views + context + sheet analysis (no raw data loaded)
+    const [context, mv, sheetCtx] = await Promise.all([
       dbGet("SELECT * FROM project_context WHERE workspace_id = ?", workspaceId),
       getMaterializedContext(dbAll, workspaceId),
+      loadSheetContext(workspaceId),
     ]);
 
     const contextText = context
@@ -2853,7 +2995,7 @@ app.post("/api/w/:slug/ai/generate-report", async (req, res) => {
 
 CONTEXTE :
 ${contextText}
-
+${sheetCtx ? `\n${sheetCtx}\n` : ""}
 RAPPORT A GENERER :
 Titre : ${suggestion.title}
 Description : ${suggestion.description}
@@ -2877,7 +3019,13 @@ IMPORTANT : Tu ne dois PAS inventer de donnees. Genere une SPECIFICATION de rapp
 Pour chaque section, indique la table source, la colonne de regroupement (groupBy),
 les colonnes de valeurs (valueColumns) avec le type d'agregat (avg, sum, count, min, max),
 et un filtre optionnel. Les donnees seront calculees automatiquement depuis la base.
-
+${sheetCtx ? `
+REGLES MULTI-FEUILLES :
+- La colonne "_sheet" contient le nom de la feuille source (scénario, période, segment).
+- Pour un rapport comparatif, utilise "_sheet" comme groupBy principal ou comme deuxième dimension.
+- Pour un rapport filtré sur une seule variante, utilise un filtre : {"column": "_sheet", "operator": "=", "value": "NomFeuille"}.
+- Pour les KPIs comparatifs, génère une valeur par variante avec le delta entre elles.
+` : ""}
 REGLES pour les sections :
 - type "bar" : config doit avoir { xKey, yKeys: [...], colors: [...] }
 - type "composed" : config doit avoir { xKey, bars: [{key, color, name}], line: {key, color, name} }
@@ -3163,7 +3311,10 @@ app.post("/api/w/:slug/ai/chat", async (req, res) => {
     if (!message) return res.status(400).json({ error: "Paramètre 'message' manquant." });
 
     const workspaceId = req.workspace.id;
-    const context = await dbGet("SELECT * FROM project_context WHERE workspace_id = ?", workspaceId);
+    const [context, sheetCtx] = await Promise.all([
+      dbGet("SELECT * FROM project_context WHERE workspace_id = ?", workspaceId),
+      loadSheetContext(workspaceId),
+    ]);
     const fullData = await buildFullDataContext(workspaceId);
 
     const projectName = context?.project_name || req.workspace.name || "Analyse";
@@ -3224,6 +3375,7 @@ app.post("/api/w/:slug/ai/chat", async (req, res) => {
 ${objectives ? `\nObjectifs du projet : ${objectives}` : ""}
 ${scope ? `\nPérimètre : ${scope}` : ""}
 ${indicateurs.length ? `\nAxes d'analyse attendus : ${indicateurs.join(", ")}` : ""}
+${sheetCtx ? `\n${sheetCtx}` : ""}
 
 DONNÉES DISPONIBLES :
 ${dataContext}
