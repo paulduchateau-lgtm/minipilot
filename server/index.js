@@ -3511,23 +3511,59 @@ app.post("/api/w/:slug/reports/:id/iterate", async (req, res) => {
       .join("\n");
 
     const context = await dbGet("SELECT * FROM project_context WHERE workspace_id = ?", ws.id);
-    const dataSummary = await buildDataSummary(10, ws.id);
-    const dataText = aiMode === "local" ? "" : dataSummary.map(t =>
-      `Table "${t.name}" (${t.rowCount} lignes) : ${t.columns.map(c => c.name).join(", ")}`
-    ).join("\n");
 
-    const prompt = `${buildExpertiseIdentity(context)} Voici un rapport existant :
+    // ── Compact report for prompt: keep structure, truncate heavy data ──
+    // Full report can be 40K+ chars → timeout on Vercel. Send only what AI
+    // needs to improve titles, interpretations and structure.
+    function compactForPrompt(report) {
+      const compact = {
+        id: report.id,
+        title: report.title,
+        subtitle: report.subtitle,
+        objective: report.objective,
+        kpis: report.kpis,
+        sections: (report.sections || []).map(s => {
+          const cs = { title: s.title, type: s.type };
+          if (s.interpretation) cs.interpretation = s.interpretation;
+          if (s.dataSource) cs.dataSource = s.dataSource;
+          // For tables/charts: include column structure + first 3 rows only
+          if (Array.isArray(s.data) && s.data.length > 0) {
+            cs.dataPreview = s.data.slice(0, 3);
+            cs.dataRowCount = s.data.length;
+            if (s.data.length > 3) cs.dataTruncated = true;
+          } else if (s.data != null) {
+            cs.data = s.data;
+          }
+          // Keep chart config keys
+          if (s.xKey) cs.xKey = s.xKey;
+          if (s.yKeys) cs.yKeys = s.yKeys;
+          if (s.nameKey) cs.nameKey = s.nameKey;
+          if (s.valueKey) cs.valueKey = s.valueKey;
+          if (s.columns) cs.columns = s.columns;
+          return cs;
+        }),
+      };
+      return compact;
+    }
+
+    const compactReport = compactForPrompt(currentReport);
+
+    const prompt = `${buildExpertiseIdentity(context)} Voici un rapport existant (données tronquées à 3 lignes par section pour la concision — ne modifie PAS les données, concentre-toi sur les titres, interprétations, structure et KPIs) :
 
 RAPPORT ACTUEL (JSON) :
-${JSON.stringify(currentReport, null, 2)}
+${JSON.stringify(compactReport, null, 2)}
 
 FEEDBACK GLOBAL :
 ${globalFeedback || "Aucun feedback global."}
 
 FEEDBACK PAR SECTION :
-${sectionFeedbackText || "Aucun feedback par section."}${dataText ? `\nDONNÉES DISPONIBLES :\n${dataText}` : ""}
+${sectionFeedbackText || "Aucun feedback par section."}
 
-Génère une version améliorée. Conserve la structure JSON exacte. Réponds UNIQUEMENT avec le JSON valide.`;
+IMPORTANT : Génère une version améliorée en conservant la structure JSON exacte.
+- Pour les sections avec dataTruncated:true, conserve dataPreview et dataRowCount tels quels.
+- Améliore : titres, sous-titres, interprétations, KPIs, objectifs.
+- Ne modifie PAS les données (data/dataPreview).
+Réponds UNIQUEMENT avec le JSON valide.`;
 
     const iterateMaxTokens = aiMode === "local" ? 2000 : 4000;
     const aiResult = await aiComplete("", prompt, { maxTokens: iterateMaxTokens });
@@ -3536,6 +3572,31 @@ Génère une version améliorée. Conserve la structure JSON exacte. Réponds UN
     if (!extracted) return res.status(422).json({ error: "L'IA n'a pas retourné un JSON valide.", raw: aiResult.text });
 
     const improved = { ...extracted.json, id: currentReport.id };
+
+    // ── Re-inject original full data into improved sections ──
+    // The prompt only sent truncated data (3 rows preview). Restore the
+    // full data arrays from the original report so charts/tables keep all rows.
+    if (improved.sections && currentReport.sections) {
+      for (let i = 0; i < improved.sections.length; i++) {
+        const orig = currentReport.sections[i];
+        const impSec = improved.sections[i];
+        if (!orig) continue;
+        // Restore full data from original if AI returned truncated preview
+        if (orig.data && Array.isArray(orig.data)) {
+          impSec.data = orig.data;
+        }
+        // Clean up prompt-only fields the AI might have echoed back
+        delete impSec.dataPreview;
+        delete impSec.dataRowCount;
+        delete impSec.dataTruncated;
+        // Restore chart config keys the AI might have dropped
+        if (orig.xKey && !impSec.xKey) impSec.xKey = orig.xKey;
+        if (orig.yKeys && !impSec.yKeys) impSec.yKeys = orig.yKeys;
+        if (orig.nameKey && !impSec.nameKey) impSec.nameKey = orig.nameKey;
+        if (orig.valueKey && !impSec.valueKey) impSec.valueKey = orig.valueKey;
+        if (orig.columns && !impSec.columns) impSec.columns = orig.columns;
+      }
+    }
 
     // ── Post-processing: cap table rows at 15 ──
     if (improved.sections) {
