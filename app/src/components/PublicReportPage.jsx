@@ -22,6 +22,7 @@ function getIcon(iconName) {
 // ── TheFork brand tokens ───────────────────────────────────────────
 const TF = {
   deepGreen:  "#002925",
+  teal:       "#006D5B",
   mint:       "#C2FEB3",
   cream:      "#FFFCF0",
   paper:      "#FAFAF7",
@@ -36,18 +37,18 @@ const TF = {
   radius:     16,
   radiusSm:   10,
   radiusPill: 999,
+  fontDisplay: "'Outfit', 'DM Sans', sans-serif",
+  fontBody:    "'Hind', 'DM Sans', sans-serif",
+  fontMono:    "'JetBrains Mono', monospace",
 };
 
-// ── TheFork Fork Logo SVG ──────────────────────────────────────────
-function TheForkLogo({ size = 28, color = TF.deepGreen }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="20" cy="20" r="20" fill={color} />
-      <path d="M14 10 L14 22 Q14 28 20 30 Q26 28 26 22 L26 10" stroke={TF.mint} strokeWidth="2.5" fill="none" strokeLinecap="round" />
-      <line x1="14" y1="16" x2="26" y2="16" stroke={TF.mint} strokeWidth="2" strokeLinecap="round" />
-      <line x1="20" y1="10" x2="20" y2="16" stroke={TF.mint} strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
+// ── Inject TheFork Google Fonts (Outfit + Hind) ────────────────────
+const TF_FONTS_URL = "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Hind:wght@300;400;500&display=swap";
+if (typeof document !== "undefined" && !document.querySelector(`link[href="${TF_FONTS_URL}"]`)) {
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = TF_FONTS_URL;
+  document.head.appendChild(link);
 }
 
 export default function PublicReportPage() {
@@ -167,30 +168,34 @@ export default function PublicReportPage() {
       <div style={tfPageStyle}>
         {/* TheFork Header Bar */}
         <div style={{
-          background: TF.deepGreen,
-          padding: "14px 24px",
+          background: TF.white,
+          padding: "16px 24px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           position: "sticky", top: 0, zIndex: 50,
+          borderBottom: `1px solid ${TF.ink100}`,
+          boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <TheForkLogo size={32} color={TF.white} />
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <img
+              src="/logo_thefork.png"
+              alt="TheFork"
+              style={{ height: 32, width: "auto" }}
+            />
+            <div style={{
+              width: 1, height: 24, background: TF.ink100,
+            }} />
             <span style={{
-              fontFamily: "'DM Sans', sans-serif",
-              fontSize: 15, fontWeight: 500, color: TF.white,
-              letterSpacing: "-0.01em",
-            }}>TheFork</span>
-            <span style={{
-              fontSize: 10, fontWeight: 400,
-              color: TF.mint, letterSpacing: "0.08em",
-              textTransform: "uppercase", marginLeft: 6,
-              fontFamily: "'JetBrains Mono', monospace",
-            }}>RAPPORT</span>
+              fontSize: 11, fontWeight: 400,
+              color: TF.teal, letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              fontFamily: TF.fontMono,
+            }}>Rapport</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {publishedAt && (
               <span style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 10, color: "rgba(255,255,255,0.6)",
+                fontFamily: TF.fontMono,
+                fontSize: 10, color: TF.ink500,
                 letterSpacing: "0.1em", textTransform: "uppercase",
               }}>
                 {new Date(publishedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
@@ -200,10 +205,10 @@ export default function PublicReportPage() {
               onClick={handleExportPdf}
               disabled={pdfLoading}
               style={{
-                background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)",
+                background: TF.paper, border: `1px solid ${TF.ink100}`,
                 borderRadius: TF.radiusSm, padding: "6px 12px", cursor: pdfLoading ? "wait" : "pointer",
                 display: "flex", alignItems: "center", gap: 5,
-                color: TF.white, fontSize: 11, fontFamily: "inherit",
+                color: TF.ink700, fontSize: 11, fontFamily: "inherit",
                 opacity: pdfLoading ? 0.6 : 1,
               }}
             >
@@ -213,10 +218,10 @@ export default function PublicReportPage() {
             <button
               onClick={toggleTheme}
               style={{
-                background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)",
+                background: TF.paper, border: `1px solid ${TF.ink100}`,
                 borderRadius: TF.radiusSm, padding: "6px 10px", cursor: "pointer",
                 display: "flex", alignItems: "center",
-                color: TF.white, fontSize: 11, fontFamily: "inherit",
+                color: TF.ink700, fontSize: 11, fontFamily: "inherit",
               }}
               title={theme === "dark" ? "Mode clair" : "Mode sombre"}
             >
@@ -237,16 +242,16 @@ export default function PublicReportPage() {
                 <Icon size={20} color={TF.deepGreen} />
               </div>
               <h1 style={{
-                fontSize: 26, fontWeight: 500, margin: 0,
-                fontFamily: "'DM Sans', sans-serif",
+                fontSize: 28, fontWeight: 600, margin: 0,
+                fontFamily: TF.fontDisplay,
                 color: TF.ink900, letterSpacing: "-0.02em",
               }}>{report.title}</h1>
             </div>
             {report.subtitle && (
-              <p style={{ fontSize: 14, color: TF.ink500, margin: "4px 0 0 52px" }}>{report.subtitle}</p>
+              <p style={{ fontSize: 15, color: TF.ink500, margin: "4px 0 0 52px", fontFamily: TF.fontBody }}>{report.subtitle}</p>
             )}
             {report.objective && (
-              <p style={{ fontSize: 13, color: TF.ink700, margin: "8px 0 0 52px", fontStyle: "italic" }}>{report.objective}</p>
+              <p style={{ fontSize: 13, color: TF.ink700, margin: "8px 0 0 52px", fontStyle: "italic", fontFamily: TF.fontBody }}>{report.objective}</p>
             )}
           </div>
 
@@ -267,13 +272,14 @@ export default function PublicReportPage() {
                     boxShadow: isGreenCard ? "none" : "0 1px 3px rgba(0,0,0,0.04)",
                   }}>
                     <div style={{
-                      fontFamily: "'JetBrains Mono', monospace",
+                      fontFamily: TF.fontMono,
                       fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em",
                       color: isGreenCard ? TF.mint : TF.ink500,
                       marginBottom: 8,
                     }}>{k.label}</div>
                     <div style={{
-                      fontSize: 24, fontWeight: 500,
+                      fontSize: 26, fontWeight: 600,
+                      fontFamily: TF.fontDisplay,
                       color: isGreenCard ? TF.white : TF.ink900,
                     }}>{k.value}</div>
                     {k.trend && (
@@ -289,7 +295,7 @@ export default function PublicReportPage() {
                             ? (isGreenCard ? "#FF8A80" : TF.negative)
                             : (isGreenCard ? TF.mint : TF.positive),
                           padding: "2px 8px", borderRadius: TF.radiusPill,
-                          fontSize: 10, fontWeight: 500, fontFamily: "'JetBrains Mono', monospace",
+                          fontSize: 10, fontWeight: 500, fontFamily: TF.fontMono,
                           display: "inline-flex", alignItems: "center", gap: 3,
                         }}>
                           {k.bad ? <ArrowDownRight size={10} /> : <ArrowUpRight size={10} />}
@@ -336,7 +342,7 @@ export default function PublicReportPage() {
                       color: TF.deepGreen,
                       fontSize: 10, fontWeight: 500,
                       padding: "3px 10px", borderRadius: TF.radiusPill,
-                      fontFamily: "'JetBrains Mono', monospace",
+                      fontFamily: TF.fontMono,
                       textTransform: "uppercase", letterSpacing: "0.08em",
                     }}>
                       Section {i + 1}
@@ -347,7 +353,7 @@ export default function PublicReportPage() {
                         color: TF.deepGreen,
                         fontSize: 10, fontWeight: 500,
                         padding: "3px 8px", borderRadius: TF.radiusPill,
-                        fontFamily: "'JetBrains Mono', monospace",
+                        fontFamily: TF.fontMono,
                         display: "inline-flex", alignItems: "center", gap: 4,
                       }}>
                         <MessageSquare size={10} />
@@ -398,15 +404,15 @@ export default function PublicReportPage() {
             borderTop: `1px solid ${TF.ink100}`,
           }}>
             <h3 style={{
-              fontSize: 15, fontWeight: 500, marginBottom: 16,
+              fontSize: 16, fontWeight: 500, marginBottom: 16,
               display: "flex", alignItems: "center", gap: 8,
-              color: TF.ink900,
+              color: TF.ink900, fontFamily: TF.fontDisplay,
             }}>
               <MessageSquare size={16} color={TF.ink500} />
               Commentaires généraux
               {generalComments.length > 0 && (
                 <span style={{
-                  fontFamily: "'JetBrains Mono', monospace",
+                  fontFamily: TF.fontMono,
                   fontSize: 10, color: TF.ink500,
                 }}>({generalComments.length})</span>
               )}
@@ -443,13 +449,13 @@ export default function PublicReportPage() {
             marginTop: 48, paddingTop: 20, borderTop: `1px solid ${TF.ink100}`,
             display: "flex", justifyContent: "space-between", alignItems: "center",
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <TheForkLogo size={20} />
-              <span style={{ fontSize: 11, color: TF.ink500, fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.05em" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <img src="/logo_thefork.png" alt="TheFork" style={{ height: 18, width: "auto", opacity: 0.5 }} />
+              <span style={{ fontSize: 11, color: TF.ink500, fontFamily: TF.fontMono, letterSpacing: "0.05em" }}>
                 Propulsé par Pilot
               </span>
             </div>
-            <span style={{ fontSize: 10, color: TF.ink300, fontFamily: "'JetBrains Mono', monospace" }}>
+            <span style={{ fontSize: 10, color: TF.ink300, fontFamily: TF.fontMono }}>
               Document confidentiel
             </span>
           </div>
@@ -696,13 +702,13 @@ function TfMarginComment({ comment }) {
           {comment.author_name || "Anonyme"}
         </span>
         <span style={{
-          fontSize: 9, fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 9, fontFamily: TF.fontMono,
           color: TF.ink500, letterSpacing: "0.05em",
         }}>
           {new Date(comment.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
         </span>
       </div>
-      <p style={{ margin: 0, color: TF.ink700, fontSize: 12 }}>
+      <p style={{ margin: 0, color: TF.ink700, fontSize: 12, fontFamily: TF.fontBody }}>
         {comment.body}
       </p>
     </div>
@@ -726,7 +732,7 @@ function TfCommentBubble({ comment }) {
           {comment.author_name || "Anonyme"}
         </span>
         <span style={{
-          fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 10, fontFamily: TF.fontMono,
           color: TF.ink300,
         }}>
           {new Date(comment.created_at).toLocaleDateString("fr-FR", {
@@ -734,7 +740,7 @@ function TfCommentBubble({ comment }) {
           })}
         </span>
       </div>
-      <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5, color: TF.ink900 }}>{comment.body}</p>
+      <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5, color: TF.ink900, fontFamily: TF.fontBody }}>{comment.body}</p>
     </div>
   );
 }
@@ -942,7 +948,7 @@ const tfPageStyle = {
   minHeight: "100vh",
   background: TF.paper,
   color: TF.ink900,
-  fontFamily: "'DM Sans', sans-serif",
+  fontFamily: TF.fontBody,
 };
 
 // ── Default Pilot page styles ───────────────────────────────────────
