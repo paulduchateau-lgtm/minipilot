@@ -658,7 +658,7 @@ export default function HomePage({ tenant = "default", basePath = "" }) {
             textTransform: "uppercase", letterSpacing: "0.1em",
             color: "var(--mp-text-muted)",
           }}>
-            Donnees locales
+            Environnement sécurisé
           </span>
         </div>
         <span style={{
