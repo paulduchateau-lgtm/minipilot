@@ -3656,19 +3656,32 @@ app.post("/api/w/:slug/reports/:id/improve-section", async (req, res) => {
     const section = sections[sectionIndex];
     const context = await dbGet("SELECT * FROM project_context WHERE workspace_id = ?", ws.id);
 
-    // Compact section for prompt (keep structure, truncate data)
+    // Compact section for prompt (keep structure, send data sample + all column names)
     const compactSection = { title: section.title, type: section.type };
     if (section.interpretation) compactSection.interpretation = section.interpretation;
     if (section.insight) compactSection.insight = section.insight;
+    if (section.config) compactSection.config = section.config;
+    if (section.xKey) compactSection.xKey = section.xKey;
+    if (section.yKeys) compactSection.yKeys = section.yKeys;
+    if (section.nameKey) compactSection.nameKey = section.nameKey;
+    if (section.valueKey) compactSection.valueKey = section.valueKey;
+    if (section.columns) compactSection.columns = section.columns;
     if (Array.isArray(section.data) && section.data.length > 0) {
       compactSection.dataPreview = section.data.slice(0, 5);
       compactSection.dataRowCount = section.data.length;
+      compactSection.availableColumns = Object.keys(section.data[0]);
     }
-    if (section.xKey) compactSection.xKey = section.xKey;
-    if (section.yKeys) compactSection.yKeys = section.yKeys;
-    if (section.columns) compactSection.columns = section.columns;
+    if (section.data_sets) {
+      compactSection.data_sets_preview = section.data_sets.map(ds => ({
+        label: ds.label,
+        sampleData: (ds.data || []).slice(0, 3),
+        rowCount: (ds.data || []).length,
+      }));
+    }
 
-    const prompt = `${buildExpertiseIdentity(context)} Tu es un expert en amélioration de rapports analytiques.
+    const chartTypes = "bar, grouped_bar, area_multi, composed, pie_multi, table, line";
+
+    const prompt = `${buildExpertiseIdentity(context)} Tu es un expert en data-visualisation et amélioration de rapports analytiques.
 
 Voici UNE SEULE section d'un rapport intitulé "${currentReport.title}" à améliorer :
 
@@ -3676,14 +3689,17 @@ SECTION ACTUELLE (JSON) :
 ${JSON.stringify(compactSection, null, 2)}
 
 DEMANDE D'AMÉLIORATION :
-${feedback || "Améliore cette section : rends le titre plus percutant, enrichis l'interprétation (insight), et optimise la lisibilité."}
+${feedback || "Améliore cette section : optimise la visualisation (type de graphique, axes, lisibilité), rends le titre plus percutant, et enrichis l'insight."}
 
 CONSIGNES :
 - Retourne UNIQUEMENT le JSON de la section améliorée.
-- Conserve le même "type" et la même structure de données.
-- NE modifie PAS les données (data/dataPreview).
-- Améliore : title, insight, interpretation si présents.
-- Tu peux ajouter un champ "insight" si absent (1-2 phrases d'analyse).
+- Tu PEUX changer le "type" de visualisation parmi : ${chartTypes}
+- Tu PEUX modifier xKey, yKeys, nameKey, valueKey pour choisir de meilleurs axes.
+- Tu PEUX modifier ou créer un objet "config" (avec xKey, yKeys, colors, names).
+- NE modifie PAS les lignes de données (data/dataPreview). Les données restent telles quelles.
+- Améliore : title, insight, type, config, xKey, yKeys si pertinent.
+- Ajoute un champ "insight" (1-2 phrases d'analyse) si absent ou faible.
+- Les colonnes disponibles dans les données sont : ${compactSection.availableColumns ? compactSection.availableColumns.join(", ") : "voir dataPreview"}
 Réponds UNIQUEMENT avec le JSON valide de la section.`;
 
     const maxTokens = aiMode === "local" ? 1500 : 2500;
@@ -3714,9 +3730,6 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
     if (section.valueKey && !improvedSection.valueKey) improvedSection.valueKey = section.valueKey;
     if (section.columns && !improvedSection.columns) improvedSection.columns = section.columns;
     if (section.config && !improvedSection.config) improvedSection.config = section.config;
-
-    // Preserve type from original
-    improvedSection.type = section.type;
 
     // Update the section in the report
     sections[sectionIndex] = improvedSection;
