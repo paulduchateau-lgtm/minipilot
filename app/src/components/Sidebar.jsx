@@ -258,7 +258,7 @@ export default function Sidebar({ page, setPage, sidebarOpen, setSidebarOpen, on
       {/* Back to home */}
       <div style={{ padding: "0 8px" }}>
         <button
-          onClick={() => navigate(basePath || "/")}
+          onClick={() => navigate(user?.tenant ? `/${user.tenant}` : (basePath || "/"))}
           onMouseEnter={e => e.currentTarget.style.background = "var(--mp-nav-hover)"}
           onMouseLeave={e => e.currentTarget.style.background = "transparent"}
           style={{
