@@ -42,7 +42,7 @@ function parseInterpretation(text) {
   return result;
 }
 
-export default function FullReport({ report, isFav, onToggleFav, api, onReportUpdated }) {
+export default function FullReport({ report, isFav, onToggleFav, api, onReportUpdated, onImprovingChange }) {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [iterateLoading, setIterateLoading] = useState(false);
@@ -51,6 +51,51 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
   const [versionPanelOpen, setVersionPanelOpen] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [compareVersionNum, setCompareVersionNum] = useState(null);
+
+  // ── Per-section improvement state ──────────────────────────────
+  // { [sectionIndex]: { loading: true, startTime: Date.now(), error: null } }
+  const [sectionImproving, setSectionImproving] = useState({});
+
+  const handleSectionImprove = async (sectionIndex, feedback) => {
+    setSectionImproving(prev => ({
+      ...prev,
+      [sectionIndex]: { loading: true, startTime: Date.now(), error: null },
+    }));
+    try {
+      const result = await api.improveSection(report.id, sectionIndex, feedback);
+      if (result.error) {
+        setSectionImproving(prev => ({
+          ...prev,
+          [sectionIndex]: { loading: false, startTime: null, error: result.error },
+        }));
+      } else {
+        // Update the section in the report
+        const sections = typeof report.sections === "string"
+          ? JSON.parse(report.sections) : [...(report.sections || [])];
+        sections[sectionIndex] = result.section;
+        const updated = { ...report, sections };
+        if (onReportUpdated) onReportUpdated(updated);
+        setSectionImproving(prev => {
+          const n = { ...prev };
+          delete n[sectionIndex];
+          return n;
+        });
+      }
+    } catch (err) {
+      setSectionImproving(prev => ({
+        ...prev,
+        [sectionIndex]: { loading: false, startTime: null, error: err.message || "Échec de l'amélioration" },
+      }));
+    }
+  };
+
+  // Check if any section improvement is in progress
+  const hasImprovingSection = Object.values(sectionImproving).some(s => s.loading);
+
+  // Notify parent when improving state changes
+  useEffect(() => {
+    if (onImprovingChange) onImprovingChange(hasImprovingSection);
+  }, [hasImprovingSection]);
 
   // ── Publication state ──────────────────────────────────────────
   const [publishStatus, setPublishStatus] = useState(null);
@@ -514,6 +559,8 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
                   onInterpret={handleInterpret}
                   onCloseInterpretation={handleCloseInterpretation}
                   hasPersistedInterpretation={!!interpretations[i]}
+                  onImproveSection={handleSectionImprove}
+                  sectionImproving={sectionImproving[i] || null}
                 />
                 {sComments.length > 0 && (
                   <div style={{ paddingTop: 36 }}>

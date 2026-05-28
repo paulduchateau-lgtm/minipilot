@@ -256,6 +256,15 @@ export function createWorkspaceApi(slug) {
       return res.json();
     },
 
+    improveSection: async (id, sectionIndex, feedback) => {
+      const res = await apiFetch(`${BASE}/reports/${id}/improve-section`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sectionIndex, feedback }),
+      });
+      return res.json();
+    },
+
     getReportVersions: async (id) => {
       const res = await apiFetch(`${BASE}/reports/${id}/versions`);
       return res.json();
