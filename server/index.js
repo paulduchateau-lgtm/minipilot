@@ -2634,7 +2634,9 @@ app.post("/api/w/:slug/transform", async (req, res) => {
     const tableSummaries = [];
     const tablesByCommonKey = {};
     const allSheetMeta = [];
+    const parsedSheets = [];
 
+    // ── Phase 1: Parse all sheets (collect in memory, no DB inserts yet) ──
     for (const file of files) {
       const sheets = await dbAll("SELECT DISTINCT sheet_name FROM data_rows WHERE file_id = ?", file.id);
       const sheetNames = sheets.map(s => s.sheet_name).filter(Boolean);
@@ -2653,9 +2655,9 @@ app.post("/api/w/:slug/transform", async (req, res) => {
         const keyMap = {};
         for (const k of originalKeys) keyMap[k] = normalizeColumnName(k);
 
-        // Collect sheet metadata for relationship analysis
+        const displayName = sheetName || path.basename(file.name, path.extname(file.name));
         allSheetMeta.push({
-          name: sheetName || path.basename(file.name, path.extname(file.name)),
+          name: displayName,
           columns: Object.values(keyMap),
           rowCount: nonEmptyRows.length,
         });
@@ -2693,35 +2695,108 @@ app.post("/api/w/:slug/transform", async (req, res) => {
           return newRow;
         });
 
-        const baseName = sheetName
+        const defaultTableName = sheetName
           ? normalizeColumnName(sheetName)
           : normalizeColumnName(path.basename(file.name, path.extname(file.name)));
-        const tableName = baseName;
-        const colsJson = JSON.stringify(columns);
 
-        const cleanStmts = converted.map(row => ({
-          sql: "INSERT INTO clean_data (table_name, columns, row_data, source_file_id, workspace_id) VALUES (?, ?, ?, ?, ?)",
-          args: [tableName, colsJson, JSON.stringify(row), file.id, workspaceId],
-        }));
-        if (cleanStmts.length > 0) await dbBatch(cleanStmts);
-
-        const colStats = columns.map(col => {
-          const vals = converted.map(r => r[col.name]).filter(v => v !== null && v !== undefined && v !== "");
-          const nullCount = converted.length - vals.length;
-          const sampleValues = col.type === "string" ? [...new Set(vals)].slice(0, 5) : vals.slice(0, 5);
-          return { name: col.name, type: col.type, nullCount, sampleValues };
+        parsedSheets.push({
+          displayName,
+          defaultTableName,
+          fileId: file.id,
+          fileName: file.name,
+          columns,
+          converted,
         });
-        tableSummaries.push({ name: tableName, columns: colStats, rowCount: converted.length });
-
-        for (const col of columns) {
-          if (!tablesByCommonKey[col.name]) tablesByCommonKey[col.name] = [];
-          tablesByCommonKey[col.name].push(tableName);
-        }
       }
     }
 
-    // ── Sheet relationship analysis ──
+    // ── Phase 2: Analyze relationships & build merge map ──
     const sheetAnalysis = analyzeSheetRelationships(allSheetMeta);
+    const mergeMap = new Map();
+    const groupUnifiedColumns = new Map();
+
+    if (sheetAnalysis.hasMultiSheetPatterns) {
+      for (const group of sheetAnalysis.groups) {
+        let mergedName;
+        if (group.commonPrefix) {
+          mergedName = normalizeColumnName(group.commonPrefix);
+        } else {
+          const firstSheet = parsedSheets.find(p => p.displayName === group.sheets[0]);
+          mergedName = firstSheet
+            ? normalizeColumnName(path.basename(firstSheet.fileName, path.extname(firstSheet.fileName)))
+            : "merged_data";
+        }
+        for (const name of group.sheets) mergeMap.set(name, mergedName);
+      }
+
+      // Compute unified column schema per merged group
+      const colMaps = new Map();
+      for (const parsed of parsedSheets) {
+        const mergedName = mergeMap.get(parsed.displayName);
+        if (!mergedName) continue;
+        if (!colMaps.has(mergedName)) colMaps.set(mergedName, new Map());
+        const cm = colMaps.get(mergedName);
+        for (const col of parsed.columns) {
+          if (!cm.has(col.name)) {
+            cm.set(col.name, { ...col });
+          } else {
+            const existing = cm.get(col.name);
+            if (existing.type !== col.type) existing.type = "string";
+            if (col.nullable) existing.nullable = true;
+          }
+        }
+      }
+      for (const [name, cm] of colMaps) {
+        const cols = [];
+        if (cm.has("_sheet")) { cols.push(cm.get("_sheet")); cm.delete("_sheet"); }
+        for (const c of cm.values()) cols.push(c);
+        groupUnifiedColumns.set(name, cols);
+      }
+    }
+
+    // ── Phase 3: Insert into clean_data (merged or standalone) ──
+    for (const parsed of parsedSheets) {
+      const mergedName = mergeMap.get(parsed.displayName);
+      const tableName = mergedName || parsed.defaultTableName;
+      const columns = mergedName
+        ? groupUnifiedColumns.get(mergedName)
+        : parsed.columns;
+      const colsJson = JSON.stringify(columns);
+
+      const cleanStmts = parsed.converted.map(row => ({
+        sql: "INSERT INTO clean_data (table_name, columns, row_data, source_file_id, workspace_id) VALUES (?, ?, ?, ?, ?)",
+        args: [tableName, colsJson, JSON.stringify(row), parsed.fileId, workspaceId],
+      }));
+      if (cleanStmts.length > 0) await dbBatch(cleanStmts);
+
+      const colStats = columns.map(col => {
+        const vals = parsed.converted.map(r => r[col.name]).filter(v => v !== null && v !== undefined && v !== "");
+        const nullCount = parsed.converted.length - vals.length;
+        const sampleValues = col.type === "string" ? [...new Set(vals)].slice(0, 5) : vals.slice(0, 5);
+        return { name: col.name, type: col.type, nullCount, sampleValues };
+      });
+      tableSummaries.push({ name: tableName, columns: colStats, rowCount: parsed.converted.length, merged: !!mergedName });
+
+      for (const col of columns) {
+        if (!tablesByCommonKey[col.name]) tablesByCommonKey[col.name] = [];
+        if (!tablesByCommonKey[col.name].includes(tableName)) tablesByCommonKey[col.name].push(tableName);
+      }
+    }
+
+    // Consolidate summaries for merged tables
+    const consolidatedSummaries = [];
+    const seenTables = new Map();
+    for (const s of tableSummaries) {
+      if (seenTables.has(s.name)) {
+        seenTables.get(s.name).rowCount += s.rowCount;
+      } else {
+        const entry = { ...s };
+        seenTables.set(s.name, entry);
+        consolidatedSummaries.push(entry);
+      }
+    }
+
+    // Persist sheet analysis
     if (sheetAnalysis.hasMultiSheetPatterns) {
       await dbRun("UPDATE workspaces SET sheet_analysis = ? WHERE id = ?",
         JSON.stringify(sheetAnalysis), workspaceId);
@@ -2736,11 +2811,11 @@ app.post("/api/w/:slug/transform", async (req, res) => {
     await materialize(dbGet, dbAll, dbRun, dbBatch, workspaceId);
 
     const commonCols = Object.entries(tablesByCommonKey).filter(([, tables]) => tables.length > 1).map(([col, tables]) => ({ column: col, tables }));
-    const totalRows = tableSummaries.reduce((s, t) => s + t.rowCount, 0);
-    const allCols = tableSummaries.flatMap(t => t.columns);
+    const totalRows = consolidatedSummaries.reduce((s, t) => s + t.rowCount, 0);
+    const allCols = consolidatedSummaries.flatMap(t => t.columns);
 
     const response = {
-      tables: tableSummaries,
+      tables: consolidatedSummaries,
       cleanedRows: totalRows,
       typedCols: allCols.length,
       numericCols: allCols.filter(c => c.type === "number").length,
