@@ -45,6 +45,26 @@ const CHART_PALETTES = {
     success: "#3A8A4A",   // success-500
     purple:  "#6B5EB8",
   },
+  thefork: {
+    // TheFork brand: deep teal → saffron → tomato → hero green
+    colors: ["#00645A","#F5B82E","#E94E3A","#00A082","#9BCB3C","#5A2A4D","#7A8C3F","#D9542B"],
+    tooltip: {
+      background: "#FFFFFF",
+      border: "1px solid #BFBFBF",
+      borderRadius: 0,
+      color: "#1A1A1A",
+      fontSize: 12,
+      fontFamily: "'JetBrains Mono', monospace",
+    },
+    axis: { fill: "#737373", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" },
+    grid: "#BFBFBF",
+    lite:    "#00645A",   // TheFork deep teal
+    signal:  "#00A082",   // TheFork hero green
+    warm:    "#E94E3A",   // tomato
+    warning: "#F5B82E",   // saffron
+    success: "#1F8A3B",   // positive
+    purple:  "#5A2A4D",   // aubergine
+  },
 };
 
 export function ThemeProvider({ children }) {
@@ -72,5 +92,9 @@ export function useTheme() {
 
 export function useChartTheme() {
   const { theme } = useTheme();
+  // TheFork tenant gets its own chart palette
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/thefork")) {
+    return CHART_PALETTES.thefork;
+  }
   return CHART_PALETTES[theme];
 }
