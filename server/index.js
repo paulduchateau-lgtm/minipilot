@@ -4143,11 +4143,15 @@ app.get("/api/pub/:token", async (req, res) => {
     const row = await dbGet("SELECT * FROM reports WHERE id = ?", pub.report_id);
     if (!row) return res.status(404).json({ error: "Rapport supprimé." });
 
+    // Fetch workspace tenant for branding
+    const ws = await dbGet("SELECT tenant FROM workspaces WHERE id = ?", pub.workspace_id);
+    const tenant = ws?.tenant || "default";
+
     const report = deserializeReport(row);
     const comments = await dbAll(
       "SELECT * FROM report_comments WHERE published_report_id = ? ORDER BY created_at ASC", pub.id
     );
-    res.json({ report, comments, publishedAt: pub.created_at });
+    res.json({ report, comments, publishedAt: pub.created_at, tenant });
   } catch (err) {
     console.error("[GET /api/pub/:token]", err);
     res.status(500).json({ error: err.message });
