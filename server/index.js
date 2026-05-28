@@ -666,13 +666,17 @@ async function parseDocxTemplate(filePath) {
   return html.slice(0, limit);
 }
 
+function getVisibleSheetNames(workbook) {
+  return workbook.SheetNames.filter((_, idx) => !workbook.Workbook?.Sheets?.[idx]?.Hidden);
+}
+
 /**
  * Parse an .xlsx file and return an array of sheet descriptors for AI analysis.
  */
 function parseXlsxTemplate(filePath) {
   const buffer = fs.readFileSync(filePath);
   const workbook = XLSX.read(buffer, { type: "buffer" });
-  return workbook.SheetNames.map(name => {
+  return getVisibleSheetNames(workbook).map(name => {
     const sheet = workbook.Sheets[name];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", header: 1 });
     const headers = (rows[0] || []).filter(Boolean);
@@ -1342,7 +1346,7 @@ app.post("/api/upload", upload.array("files", 10), async (req, res) => {
         const workbook = XLSX.read(fileBuffer, { type: "buffer" });
         // Parse ALL sheets — merge all unique columns (skip __EMPTY* artifacts)
         const allCols = new Set();
-        for (const sheetName of workbook.SheetNames) {
+        for (const sheetName of getVisibleSheetNames(workbook)) {
           const sheet = workbook.Sheets[sheetName];
           const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
           if (sheetRows.length === 0) continue;
@@ -2491,7 +2495,7 @@ app.post("/api/w/:slug/upload", upload.array("files", 10), async (req, res) => {
         const fileBuffer = fs.readFileSync(file.path);
         const workbook = XLSX.read(fileBuffer, { type: "buffer" });
         const allCols = new Set();
-        for (const sheetName of workbook.SheetNames) {
+        for (const sheetName of getVisibleSheetNames(workbook)) {
           const sheet = workbook.Sheets[sheetName];
           const sheetRows = XLSX.utils.sheet_to_json(sheet, { defval: null });
           if (sheetRows.length === 0) continue;
