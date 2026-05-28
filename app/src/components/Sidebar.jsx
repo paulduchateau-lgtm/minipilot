@@ -159,13 +159,28 @@ export default function Sidebar({ page, setPage, sidebarOpen, setSidebarOpen, on
               fontWeight: 300, fontStyle: "italic",
               color: "var(--mp-accent-text)",
             }}>Pilot</span>
-            <span className="data-label" style={{ marginLeft: 6, fontSize: 9 }}>v0.4</span>
+            <span className="data-label" style={{ marginLeft: 6, fontSize: 9 }}>v0.9.2</span>
           </div>
-          <span style={{
-            fontFamily: "var(--font-data)", fontSize: 8,
-            textTransform: "uppercase", letterSpacing: "0.12em",
-            color: "var(--mp-text-muted)", marginTop: 2,
-          }}>by Lite Ops</span>
+          <a
+            href="https://www.lite-ops.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              fontFamily: "var(--font-data)", fontSize: 8,
+              textTransform: "uppercase", letterSpacing: "0.12em",
+              color: "var(--mp-text-muted)", marginTop: 2,
+              textDecoration: "none",
+            }}
+            onMouseEnter={e => e.currentTarget.style.color = "var(--mp-accent-text)"}
+            onMouseLeave={e => e.currentTarget.style.color = "var(--mp-text-muted)"}
+          >by Lite Ops</a>
+          {user?.tenant && (
+            <span style={{
+              fontFamily: "var(--font-display)", fontSize: 14,
+              fontWeight: 500, color: "var(--mp-text)",
+              marginTop: 6, lineHeight: 1,
+            }}>{user.tenant === "thefork" ? "TheFork" : user.tenant}</span>
+          )}
         </div>
       </div>
 
