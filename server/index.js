@@ -1900,13 +1900,20 @@ ${statsText}
 Génère un rapport analytique complet avec des données RÉELLES calculées depuis les données fournies.
 
 RÈGLES IMPORTANTES pour le format des sections :
-- type "bar" : config doit avoir { xKey, yKeys: [...], colors: [...] }
+- type "bar" : config doit avoir { xKey, yKeys: [...], colors: [...], names: [...] }
+- type "line" : config doit avoir { xKey, yKeys: [...], colors: [...], names: [...] }
 - type "composed" : config doit avoir { xKey, bars: [{key, color, name}], line: {key, color, name} }
 - type "grouped_bar" : config doit avoir { xKey, yKeys: [...], colors: [...], names: [...] }
 - type "area_multi" : config doit avoir { xKey, yKeys: [...], colors: [...], names: [...] }
 - type "pie_multi" : doit avoir data_sets: [{label, data: [{name, value}]}]
 - type "table" : doit avoir columns: [{key, label, align?, fmt?, hl?}]
 - Les couleurs disponibles : "#C8FF3C" (lite), "#4A90B8" (signal), "#C45A32" (warm), "#D4A03A" (warning), "#3A8A4A" (success)
+
+RÈGLES CRITIQUES — LIBELLÉS :
+- config.names DOIT TOUJOURS être fourni avec des libellés lisibles en français.
+- JAMAIS de noms techniques comme "empty_1", "col_2", "unnamed_0" dans les libellés.
+- Exemple : si yKeys = ["ca_mensuel", "charges_fixes"], alors names = ["CA Mensuel", "Charges Fixes"].
+- Chaque section DOIT avoir des données non vides. Ne génère pas de section sans données exploitables.
 
 RÈGLES CRITIQUES — DATES :
 - Les dates en axe X doivent TOUJOURS être des labels lisibles (ex: "Jan 2025", "Q1 2025", "Mars 2024"). JAMAIS de timestamps numériques.
@@ -1929,7 +1936,7 @@ Réponds UNIQUEMENT avec un JSON valide, sans markdown :
   "sections": [
     {
       "title": "...",
-      "type": "bar|composed|grouped_bar|area_multi|pie_multi|table",
+      "type": "bar|line|composed|grouped_bar|area_multi|pie_multi|table",
       "insight": "Observation analytique clé",
       "data": [...],
       "config": { ... }
@@ -3031,13 +3038,20 @@ REGLES MULTI-FEUILLES :
 - Pour les KPIs comparatifs, génère une valeur par variante avec le delta entre elles.
 ` : ""}
 REGLES pour les sections :
-- type "bar" : config doit avoir { xKey, yKeys: [...], colors: [...] }
+- type "bar" : config doit avoir { xKey, yKeys: [...], colors: [...], names: [...] }
+- type "line" : config doit avoir { xKey, yKeys: [...], colors: [...], names: [...] }
 - type "composed" : config doit avoir { xKey, bars: [{key, color, name}], line: {key, color, name} }
 - type "grouped_bar" : config doit avoir { xKey, yKeys: [...], colors: [...], names: [...] }
 - type "area_multi" : config doit avoir { xKey, yKeys: [...], colors: [...], names: [...] }
 - type "pie_multi" : doit avoir data_sets: [{label, data: [{name, value}]}]
 - type "table" : doit avoir columns: [{key, label, align?, fmt?, hl?}]
 - Couleurs : "#C8FF3C" (lite), "#4A90B8" (signal), "#C45A32" (warm), "#D4A03A" (warning), "#3A8A4A" (success)
+
+REGLES CRITIQUES — LIBELLES :
+- config.names DOIT TOUJOURS etre fourni avec des libelles lisibles en francais.
+- JAMAIS de noms techniques comme "empty_1", "col_2", "unnamed_0" dans les libelles.
+- Exemple : si yKeys = ["ca_mensuel", "charges_fixes"], alors names = ["CA Mensuel", "Charges Fixes"].
+- Chaque section DOIT avoir des donnees non vides. Ne genere pas de section sans donnees exploitables.
 
 REGLES CRITIQUES — DATES :
 - Si le groupBy porte sur une colonne de date (mois, trimestre, année, semaine...), ajoute "dateGroupBy": true dans la section.
@@ -3063,7 +3077,7 @@ Reponds UNIQUEMENT avec un JSON valide, sans markdown :
   "sections": [
     {
       "title": "...",
-      "type": "bar|composed|grouped_bar|area_multi|pie_multi|table",
+      "type": "bar|line|composed|grouped_bar|area_multi|pie_multi|table",
       "insight": "Observation analytique cle",
       "table": "nom_de_la_table",
       "groupBy": "colonne_de_regroupement",
@@ -3840,7 +3854,7 @@ app.post("/api/w/:slug/reports/:id/improve-section", async (req, res) => {
       }));
     }
 
-    const chartTypes = "bar, grouped_bar, area_multi, composed, pie_multi, table, line";
+    const chartTypes = "bar, grouped_bar, line, area_multi, composed, pie_multi, table";
 
     const prompt = `${buildExpertiseIdentity(context)} Tu es un expert en data-visualisation et amélioration de rapports analytiques.
 
@@ -3863,6 +3877,15 @@ CONSIGNES :
 - NE modifie PAS les lignes de données (data/dataPreview). Les données restent telles quelles.
 - Améliore : title, insight, type, config, xKey, yKeys si pertinent.
 - Ajoute un champ "insight" (1-2 phrases d'analyse) si absent ou faible.
+
+TRANSFORMATIONS SUPPORTÉES :
+- INVERSION D'AXES : si l'utilisateur demande d'inverser les axes, échange xKey et yKeys. L'ancien xKey devient le seul yKey, et l'un des anciens yKeys devient le nouveau xKey. Adapte les config.names en conséquence.
+- CHANGEMENT DE TYPE : bar → line (courbes), line → bar, bar → area_multi, etc. Quand tu changes de type, adapte TOUJOURS le config au format attendu par le nouveau type :
+  * "bar" / "grouped_bar" / "line" / "area_multi" : config = { xKey, yKeys: [...], colors: [...], names: [...] }
+  * "composed" : config = { xKey, bars: [{key, color, name}], line: {key, color, name} }
+  * "pie_multi" : data_sets = [{label, data: [{name, value}]}]
+- HORIZONTAL → COURBES : quand un diagramme à barres est transformé en courbes (line), les données restent identiques mais le rendu passe de rectangles à des lignes avec points.
+
 - Les colonnes disponibles dans les données sont : ${compactSection.availableColumns ? compactSection.availableColumns.join(", ") : "voir dataPreview"}
 Réponds UNIQUEMENT avec le JSON valide de la section.`;
 

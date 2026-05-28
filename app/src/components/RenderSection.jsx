@@ -9,6 +9,12 @@ import { useChartTheme } from "../data/theme";
 import InterpretButton from "./Interpretation/InterpretButton";
 import InterpretationPanel from "./Interpretation/InterpretationPanel";
 
+function humanize(key) {
+  if (!key) return "";
+  if (/^_*(?:empty|unnamed|colonne?|field|champ)_*\d*$/i.test(key)) return "";
+  return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
+}
+
 function formatValue(val, fmt) {
   if (fmt === "money") return typeof val === "number" ? (val >= 1e6 ? `${(val/1e6).toFixed(1)}M €` : val >= 1000 ? `${Math.round(val/1000)}k €` : `${val} €`) : val;
   if (fmt === "eur") return typeof val === "number" ? `${val} €` : val;
@@ -458,8 +464,8 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
           if (!chartData?.length) return noData;
           // For composed charts without explicit bars/line config, auto-generate from yKeys
           if (!c.bars?.length && !c.line && c.yKeys?.length) {
-            c.bars = c.yKeys.slice(0, -1).map((k, i) => ({ key: k, color: ct.colors[i], name: c.names?.[i] || k }));
-            c.line = { key: c.yKeys[c.yKeys.length - 1], color: ct.colors[c.yKeys.length - 1], name: c.names?.[c.yKeys.length - 1] || c.yKeys[c.yKeys.length - 1] };
+            c.bars = c.yKeys.slice(0, -1).map((k, i) => ({ key: k, color: ct.colors[i], name: c.names?.[i] || humanize(k) }));
+            c.line = { key: c.yKeys[c.yKeys.length - 1], color: ct.colors[c.yKeys.length - 1], name: c.names?.[c.yKeys.length - 1] || humanize(c.yKeys[c.yKeys.length - 1]) };
           }
           return (
             <ResponsiveContainer width="100%" height={h}>
@@ -476,6 +482,21 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
             </ResponsiveContainer>
           );
 
+        case "line":
+          if (!chartData?.length || !c.yKeys?.length) return noData;
+          return (
+            <ResponsiveContainer width="100%" height={h}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} />
+                <XAxis dataKey={c.xKey} tick={ct.axis} axisLine={{ stroke: ct.grid }} />
+                <YAxis tick={ct.axis} axisLine={{ stroke: ct.grid }} />
+                <Tooltip contentStyle={ct.tooltip} />
+                {c.yKeys.length > 1 && <Legend wrapperStyle={{ fontSize: 11, fontFamily: "'DM Sans'" }} />}
+                {c.yKeys.map((k,i) => <Line key={k} type="monotone" dataKey={k} stroke={remapColor(c.colors?.[i]) || ct.colors[i]} name={c.names?.[i] || humanize(k)} strokeWidth={2} dot={{ r: 3, fill: remapColor(c.colors?.[i]) || ct.colors[i] }} />)}
+              </LineChart>
+            </ResponsiveContainer>
+          );
+
         case "bar":
           if (!chartData?.length || !c.yKeys?.length) return noData;
           return (
@@ -486,7 +507,7 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
                 <YAxis tick={ct.axis} axisLine={{ stroke: ct.grid }} />
                 <Tooltip contentStyle={ct.tooltip} />
                 {c.yKeys.length > 1 && <Legend wrapperStyle={{ fontSize: 11, fontFamily: "'DM Sans'" }} />}
-                {c.yKeys.map((k,i) => <Bar key={k} dataKey={k} fill={remapColor(c.colors?.[i]) || ct.colors[i]} name={c.names?.[i] || k} radius={[3,3,0,0]} />)}
+                {c.yKeys.map((k,i) => <Bar key={k} dataKey={k} fill={remapColor(c.colors?.[i]) || ct.colors[i]} name={c.names?.[i] || humanize(k)} radius={[3,3,0,0]} />)}
               </BarChart>
             </ResponsiveContainer>
           );
@@ -501,7 +522,7 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
                 <YAxis tick={ct.axis} axisLine={{ stroke: ct.grid }} />
                 <Tooltip contentStyle={ct.tooltip} />
                 <Legend wrapperStyle={{ fontSize: 11, fontFamily: "'DM Sans'" }} />
-                {c.yKeys.map((k,i) => <Bar key={k} dataKey={k} fill={remapColor(c.colors?.[i]) || ct.colors[i]} name={c.names?.[i] || k} radius={[3,3,0,0]} />)}
+                {c.yKeys.map((k,i) => <Bar key={k} dataKey={k} fill={remapColor(c.colors?.[i]) || ct.colors[i]} name={c.names?.[i] || humanize(k)} radius={[3,3,0,0]} />)}
               </BarChart>
             </ResponsiveContainer>
           );
@@ -524,7 +545,7 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
                 <YAxis tick={ct.axis} axisLine={{ stroke: ct.grid }} />
                 <Tooltip contentStyle={ct.tooltip} />
                 <Legend wrapperStyle={{ fontSize: 11, fontFamily: "'DM Sans'" }} />
-                {c.yKeys.map((k,i) => <Area key={k} type="monotone" dataKey={k} stroke={remapColor(c.colors?.[i]) || ct.colors[i]} fill={`url(#ag_${k})`} name={c.names?.[i] || k} strokeWidth={2} />)}
+                {c.yKeys.map((k,i) => <Area key={k} type="monotone" dataKey={k} stroke={remapColor(c.colors?.[i]) || ct.colors[i]} fill={`url(#ag_${k})`} name={c.names?.[i] || humanize(k)} strokeWidth={2} />)}
               </AreaChart>
             </ResponsiveContainer>
           );

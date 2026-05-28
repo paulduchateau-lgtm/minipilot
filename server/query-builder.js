@@ -2,6 +2,45 @@
 // Translates an AI-generated report spec into real data computed from clean_data.
 // The LLM never sees raw rows — it generates a spec, and we execute it.
 
+const JUNK_LABEL_RE = /^_*(?:empty|unnamed|colonne?|field|champ)_*\d*$/i;
+
+function humanizeColumnName(key) {
+  if (!key || JUNK_LABEL_RE.test(key)) return null;
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .trim() || null;
+}
+
+function isJunkKey(key) {
+  return !key || JUNK_LABEL_RE.test(key) || /^_+\d*$/.test(key);
+}
+
+function validateSection(section) {
+  if (section.type === "text") return true;
+
+  if (section.type === "pie_multi") {
+    return !!(section.data_sets?.length && section.data_sets.some(ds => ds.data?.length > 0));
+  }
+
+  if (!section.data?.length) return false;
+
+  if (section.type === "table") {
+    return section.data.length > 0;
+  }
+
+  const cfg = section.config || {};
+  const yKeys = cfg.yKeys || [];
+  if (yKeys.length === 0) return true;
+
+  return section.data.some(row =>
+    yKeys.some(k => {
+      const v = row[k];
+      return v !== null && v !== undefined && v !== "" && v !== 0;
+    })
+  );
+}
+
 /**
  * Execute a report spec against clean_data.
  * The spec describes what to compute; we produce the actual data.
@@ -20,7 +59,6 @@ export async function executeReportSpec(dbAll, workspaceId, spec) {
       sections.push(section);
     } catch (err) {
       console.warn(`[QueryBuilder] Failed to compute section "${sectionSpec.title}":`, err.message);
-      // Keep the section but mark it as failed
       sections.push({
         ...sectionSpec,
         data: [],
@@ -28,6 +66,15 @@ export async function executeReportSpec(dbAll, workspaceId, spec) {
       });
     }
   }
+
+  const validSections = sections.filter(s => {
+    if (s._error) return false;
+    if (!validateSection(s)) {
+      console.warn(`[QueryBuilder] Dropping empty section "${s.title}"`);
+      return false;
+    }
+    return true;
+  });
 
   return {
     id: spec.id,
@@ -37,7 +84,7 @@ export async function executeReportSpec(dbAll, workspaceId, spec) {
     color: spec.color || "#4A90B8",
     icon: spec.icon || "BarChart3",
     kpis: spec.kpis || [],
-    sections,
+    sections: validSections,
   };
 }
 
@@ -238,33 +285,38 @@ function computeAggregates(rows, valueColumns) {
  * Build a default chart config from spec params.
  */
 function buildDefaultConfig(type, groupBy, valueColumns) {
-  const cols = (valueColumns || []).map(vc => typeof vc === "string" ? vc : vc.column);
+  const rawCols = (valueColumns || []).map(vc => typeof vc === "string" ? vc : vc.column);
+  const cols = rawCols.filter(c => !isJunkKey(c));
+  const names = cols.map(c => humanizeColumnName(c) || c);
   const COLORS = ["#C8FF3C", "#4A90B8", "#C45A32", "#D4A03A", "#3A8A4A"];
+  const groupLabel = humanizeColumnName(groupBy) || groupBy;
 
   switch (type) {
     case "bar":
     case "grouped_bar":
-      return { xKey: groupBy, yKeys: cols, colors: COLORS.slice(0, cols.length), names: cols };
+      return { xKey: groupBy, yKeys: cols, colors: COLORS.slice(0, cols.length), names };
+    case "line":
+      return { xKey: groupBy, yKeys: cols, colors: COLORS.slice(0, cols.length), names };
     case "composed":
       return {
         xKey: groupBy,
-        bars: cols.slice(0, -1).map((c, i) => ({ key: c, color: COLORS[i], name: c })),
-        line: cols.length > 1 ? { key: cols[cols.length - 1], color: COLORS[cols.length - 1], name: cols[cols.length - 1] } : undefined,
+        bars: cols.slice(0, -1).map((c, i) => ({ key: c, color: COLORS[i], name: names[i] })),
+        line: cols.length > 1 ? { key: cols[cols.length - 1], color: COLORS[cols.length - 1], name: names[cols.length - 1] } : undefined,
       };
     case "area_multi":
-      return { xKey: groupBy, yKeys: cols, colors: COLORS.slice(0, cols.length), names: cols };
+      return { xKey: groupBy, yKeys: cols, colors: COLORS.slice(0, cols.length), names };
     case "pie_multi":
       return {};
     case "table":
       return {
         columns: [
-          { key: groupBy, label: groupBy },
-          ...cols.map(c => ({ key: c, label: c, align: "right", fmt: "num" })),
+          { key: groupBy, label: groupLabel },
+          ...cols.map((c, i) => ({ key: c, label: names[i], align: "right", fmt: "num" })),
           { key: "_count", label: "Lignes", align: "right" },
         ],
       };
     default:
-      return { xKey: groupBy, yKeys: cols, colors: COLORS.slice(0, cols.length) };
+      return { xKey: groupBy, yKeys: cols, colors: COLORS.slice(0, cols.length), names };
   }
 }
 
