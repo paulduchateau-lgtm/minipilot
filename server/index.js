@@ -3856,6 +3856,33 @@ app.post("/api/w/:slug/reports/:id/improve-section", async (req, res) => {
 
     const chartTypes = "bar, grouped_bar, line, area_multi, composed, pie_multi, table";
 
+    // Detect pivot-eligible structure: few rows with a category column + many numeric columns
+    // (e.g., 3 budget scenarios × 12 months → user may want months on X axis, one curve per scenario)
+    let pivotHint = "";
+    if (Array.isArray(section.data) && section.data.length >= 2 && section.data.length <= 20) {
+      const sample = section.data[0];
+      const cols = Object.keys(sample);
+      const numericCols = cols.filter(k => k !== "_count" && k !== "data_sources" && typeof sample[k] === "number");
+      const strCols = cols.filter(k => typeof sample[k] === "string");
+      if (numericCols.length >= 4 && strCols.length >= 1) {
+        const pivotColCandidates = strCols.map(k => `"${k}" (valeurs: ${[...new Set(section.data.map(r => r[k]))].slice(0, 5).join(", ")})`).join("; ");
+        pivotHint = `
+PIVOT DISPONIBLE :
+Les données actuelles ont ${section.data.length} lignes et ${numericCols.length} colonnes numériques.
+Colonnes catégorielles : ${pivotColCandidates}
+Si l'utilisateur demande de mettre les colonnes numériques en axe X (ex: "les dates en abscisses") et
+d'avoir une courbe/barre par ligne (ex: "une courbe par scénario"), utilise le PIVOT.
+Pour pivoter, ajoute ces champs dans ta réponse JSON :
+  "_transform": "pivot",
+  "_pivotColumn": "<colonne_dont_les_valeurs_deviennent_les_series>" (ex: "_sheet"),
+  "_pivotXKey": "<label_pour_le_nouvel_axe_X>" (ex: "mois")
+Le serveur transposera automatiquement : les colonnes numériques deviennent les lignes X,
+et les valeurs de _pivotColumn deviennent les séries (yKeys).
+Après le pivot, configure normalement type, config.xKey, config.colors, config.names.
+Les yKeys seront automatiquement dérivées du pivot.`;
+      }
+    }
+
     const prompt = `${buildExpertiseIdentity(context)} Tu es un expert en data-visualisation et amélioration de rapports analytiques.
 
 Voici UNE SEULE section d'un rapport intitulé "${currentReport.title}" à améliorer :
@@ -3874,18 +3901,17 @@ CONSIGNES :
 - Pour afficher des libellés lisibles dans les légendes, utilise "config.names" : un tableau de strings dans le même ordre que yKeys.
   Exemple : si yKeys = ["ca_mensuel", "charges"], tu peux mettre config.names = ["CA Mensuel", "Charges d'exploitation"].
 - Tu PEUX modifier ou créer un objet "config" (avec xKey, yKeys, colors, names).
-- NE modifie PAS les lignes de données (data/dataPreview). Les données restent telles quelles.
+- NE modifie PAS les lignes de données (data/dataPreview) SAUF si tu utilises le PIVOT.
 - Améliore : title, insight, type, config, xKey, yKeys si pertinent.
 - Ajoute un champ "insight" (1-2 phrases d'analyse) si absent ou faible.
 
 TRANSFORMATIONS SUPPORTÉES :
-- INVERSION D'AXES : si l'utilisateur demande d'inverser les axes, échange xKey et yKeys. L'ancien xKey devient le seul yKey, et l'un des anciens yKeys devient le nouveau xKey. Adapte les config.names en conséquence.
 - CHANGEMENT DE TYPE : bar → line (courbes), line → bar, bar → area_multi, etc. Quand tu changes de type, adapte TOUJOURS le config au format attendu par le nouveau type :
   * "bar" / "grouped_bar" / "line" / "area_multi" : config = { xKey, yKeys: [...], colors: [...], names: [...] }
   * "composed" : config = { xKey, bars: [{key, color, name}], line: {key, color, name} }
   * "pie_multi" : data_sets = [{label, data: [{name, value}]}]
-- HORIZONTAL → COURBES : quand un diagramme à barres est transformé en courbes (line), les données restent identiques mais le rendu passe de rectangles à des lignes avec points.
-
+- INVERSION SIMPLE D'AXES : si les axes peuvent être échangés sans pivot (xKey et yKeys sont tous des colonnes existantes), échange-les directement.
+${pivotHint}
 - Les colonnes disponibles dans les données sont : ${compactSection.availableColumns ? compactSection.availableColumns.join(", ") : "voir dataPreview"}
 Réponds UNIQUEMENT avec le JSON valide de la section.`;
 
@@ -3906,30 +3932,76 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
       return res.status(422).json({ error: "JSON invalide dans la réponse IA." });
     }
 
-    // Re-inject original data
-    if (section.data && Array.isArray(section.data)) improvedSection.data = section.data;
-    if (section.data_sets) improvedSection.data_sets = section.data_sets;
+    // Clean up AI metadata
     delete improvedSection.dataPreview;
     delete improvedSection.dataRowCount;
     delete improvedSection.availableColumns;
 
-    // Validate AI-provided keys against actual data columns
-    const actualCols = section.data?.length > 0 ? new Set(Object.keys(section.data[0])) : null;
-    if (actualCols) {
-      // If AI renamed xKey to something not in the data, revert to original
-      if (improvedSection.xKey && !actualCols.has(improvedSection.xKey)) {
-        improvedSection.xKey = section.xKey;
-      }
-      // If AI renamed yKeys to labels not in the data, revert but keep AI names as config.names
-      if (improvedSection.yKeys?.length) {
-        const badKeys = improvedSection.yKeys.filter(k => !actualCols.has(k));
-        if (badKeys.length > 0 && section.yKeys?.length) {
-          // AI likely used display names instead of column names — save them as config.names
-          if (!improvedSection.config) improvedSection.config = {};
-          if (!improvedSection.config.names) {
-            improvedSection.config.names = improvedSection.yKeys;
+    // ── Handle pivot transform (transpose rows ↔ columns) ──
+    if (improvedSection._transform === "pivot" && Array.isArray(section.data) && section.data.length > 0) {
+      const pivotCol = improvedSection._pivotColumn || "_sheet";
+      const newXKey = improvedSection._pivotXKey || "mois";
+      delete improvedSection._transform;
+      delete improvedSection._pivotColumn;
+      delete improvedSection._pivotXKey;
+
+      // Execute pivot: columns become X-axis rows, pivotCol values become series
+      const skipCols = new Set([pivotCol, "_count", "data_sources"]);
+      const valueCols = Object.keys(section.data[0]).filter(k => !skipCols.has(k));
+      const seriesNames = [...new Set(section.data.map(r => r[pivotCol]).filter(Boolean))];
+
+      if (valueCols.length > 0 && seriesNames.length > 0) {
+        const pivoted = valueCols.map(col => {
+          const label = col.replace(/_/g, " ").replace(/\b\w/g, ch => ch.toUpperCase()).trim();
+          const row = { [newXKey]: label };
+          for (const srcRow of section.data) {
+            const series = srcRow[pivotCol];
+            if (series != null) row[String(series)] = srcRow[col];
           }
-          improvedSection.yKeys = section.yKeys;
+          return row;
+        });
+
+        improvedSection.data = pivoted;
+        if (!improvedSection.config) improvedSection.config = {};
+        improvedSection.config.xKey = newXKey;
+        improvedSection.config.yKeys = seriesNames;
+        improvedSection.xKey = newXKey;
+        improvedSection.yKeys = seriesNames;
+        if (!improvedSection.config.names) improvedSection.config.names = seriesNames;
+        const COLORS = ["#C8FF3C", "#4A90B8", "#C45A32", "#D4A03A", "#3A8A4A", "#8B7EC8"];
+        if (!improvedSection.config.colors) {
+          improvedSection.config.colors = seriesNames.map((_, i) => COLORS[i % COLORS.length]);
+        }
+        console.log(`[improve-section] Pivoted: ${section.data.length} rows × ${valueCols.length} cols → ${pivoted.length} rows × ${seriesNames.length} series`);
+      } else {
+        // Pivot failed — fall back to original data
+        if (section.data && Array.isArray(section.data)) improvedSection.data = section.data;
+      }
+    } else {
+      // No pivot — clean up any stray transform fields
+      delete improvedSection._transform;
+      delete improvedSection._pivotColumn;
+      delete improvedSection._pivotXKey;
+
+      // Re-inject original data
+      if (section.data && Array.isArray(section.data)) improvedSection.data = section.data;
+      if (section.data_sets) improvedSection.data_sets = section.data_sets;
+
+      // Validate AI-provided keys against actual data columns
+      const actualCols = section.data?.length > 0 ? new Set(Object.keys(section.data[0])) : null;
+      if (actualCols) {
+        if (improvedSection.xKey && !actualCols.has(improvedSection.xKey)) {
+          improvedSection.xKey = section.xKey;
+        }
+        if (improvedSection.yKeys?.length) {
+          const badKeys = improvedSection.yKeys.filter(k => !actualCols.has(k));
+          if (badKeys.length > 0 && section.yKeys?.length) {
+            if (!improvedSection.config) improvedSection.config = {};
+            if (!improvedSection.config.names) {
+              improvedSection.config.names = improvedSection.yKeys;
+            }
+            improvedSection.yKeys = section.yKeys;
+          }
         }
       }
     }
