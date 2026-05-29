@@ -73,6 +73,11 @@ export default function PublicReportPage() {
           setError(d?.error || "Rapport introuvable.");
         } else {
           setData(d);
+          // Set browser tab title: Pilot — Workspace — Report title
+          const parts = ["Pilot"];
+          if (d.workspaceName) parts.push(d.workspaceName);
+          if (d.report?.title) parts.push(d.report.title);
+          document.title = parts.join(" — ");
         }
       })
       .catch(() => setError("Impossible de charger le rapport."))
