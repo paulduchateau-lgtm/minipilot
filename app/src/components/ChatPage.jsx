@@ -180,7 +180,8 @@ export default function ChatPage({ reports, toggleStar, openReport, onReportGene
     const msg = messages[msgIndex];
     if (!msg?.reportData) return;
     try {
-      await api.saveReport({ ...msg.reportData, source: "chat", shared: 0, starred: 1 });
+      // Report is already saved in DB by the chat endpoint — just star it
+      await api.updateReport(msg.reportData.id, { starred: 1 });
       setMessages(prev => prev.map((m, i) => i === msgIndex ? { ...m, saved: true } : m));
       if (onReportGenerated) onReportGenerated();
     } catch {}
