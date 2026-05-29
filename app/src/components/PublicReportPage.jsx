@@ -166,7 +166,7 @@ export default function PublicReportPage() {
   const commentsBySection = {};
   const generalComments = [];
   for (const c of comments) {
-    if (c.section_index != null) {
+    if (c.section_index != null && c.section_index !== "general" && typeof c.section_index === "number") {
       if (!commentsBySection[c.section_index]) commentsBySection[c.section_index] = [];
       commentsBySection[c.section_index].push(c);
     } else {
