@@ -163,17 +163,7 @@ async function loadTableRows(dbAll, workspaceId, tableName) {
     "SELECT row_data FROM clean_data WHERE table_name = ? AND workspace_id = ?",
     tableName, workspaceId
   );
-  // Strip junk columns (e.g. __EMPTY_5) from each row at read time
-  // so existing data ingested before the upload-level filter still works.
-  return rawRows.map(r => {
-    const parsed = JSON.parse(r.row_data);
-    const clean = {};
-    for (const [k, v] of Object.entries(parsed)) {
-      if (k.startsWith("__EMPTY") || JUNK_LABEL_RE.test(k)) continue;
-      clean[k] = v;
-    }
-    return clean;
-  });
+  return rawRows.map(r => JSON.parse(r.row_data));
 }
 
 /**
