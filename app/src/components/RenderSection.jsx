@@ -9,9 +9,15 @@ import { useChartTheme } from "../data/theme";
 import InterpretButton from "./Interpretation/InterpretButton";
 import InterpretationPanel from "./Interpretation/InterpretationPanel";
 
+const JUNK_KEY_RE = /^_*(?:empty|unnamed|colonne?|field|champ)_*\d*$/i;
+
+function isJunkKey(key) {
+  return !key || key.startsWith("__EMPTY") || JUNK_KEY_RE.test(key) || /^_+\d*$/.test(key);
+}
+
 function humanize(key) {
   if (!key) return "";
-  if (/^_*(?:empty|unnamed|colonne?|field|champ)_*\d*$/i.test(key)) return "";
+  if (JUNK_KEY_RE.test(key)) return "";
   return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
 }
 
@@ -71,11 +77,11 @@ function DataTable({ section }) {
   // Derive columns from data keys if columns not provided by AI
   const rawColumns = section.columns || (
     section.data?.length > 0
-      ? Object.keys(section.data[0]).map(key => ({ key, label: key, align: typeof section.data[0][key] === "number" ? "right" : "left" }))
+      ? Object.keys(section.data[0]).filter(k => !isJunkKey(k)).map(key => ({ key, label: humanize(key) || key, align: typeof section.data[0][key] === "number" ? "right" : "left" }))
       : []
   );
-  // Filter out _count column
-  const columns = rawColumns.filter(col => col.key !== "_count");
+  // Filter out _count column and any remaining junk columns
+  const columns = rawColumns.filter(col => col.key !== "_count" && !isJunkKey(col.key));
   const data = section.data || [];
 
   if (columns.length === 0) return <p style={{ fontSize: 13, color: "var(--mp-text-muted)" }}>Aucune donnée à afficher.</p>;
@@ -426,6 +432,11 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
     if (section.nameKey) c.nameKey = section.nameKey;
     if (section.valueKey) c.valueKey = section.valueKey;
   }
+  // Strip junk keys from existing yKeys (may come from reports built before filtering)
+  if (c.yKeys?.length) {
+    c.yKeys = c.yKeys.filter(k => !isJunkKey(k));
+  }
+
   if ((!c.xKey || !c.yKeys?.length) && section.data?.length > 0) {
     // Infer from data: first string-like key = xKey, numeric keys = yKeys
     const sample = section.data[0];
@@ -433,7 +444,7 @@ export default function RenderSection({ section, feedbackMode, sectionFeedback, 
     const strKeys = [];
     const numKeys = [];
     for (const [k, v] of Object.entries(sample)) {
-      if (skipKeys.has(k)) continue;
+      if (skipKeys.has(k) || isJunkKey(k)) continue;
       if (typeof v === "string" || (typeof v === "number" && (isExcelDate(v) || isExcelDateStr(String(v))))) {
         strKeys.push(k);
       }
