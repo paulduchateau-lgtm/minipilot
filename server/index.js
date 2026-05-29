@@ -24,6 +24,7 @@ import { streamAnthropicSSE } from './stream.js';
 import { registerInterpretRoutes } from './interpret.js';
 import { executeReportSpec } from './query-builder.js';
 import { analyzeSheetRelationships, buildSheetContextBlock, buildSheetSummary } from './sheet-analyzer.js';
+import { analyzeSheetStructure, analyzeSimpleTableStructure, applySheetAnalysis } from './excel-intelligence.js';
 import cron from 'node-cron';
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
@@ -263,6 +264,27 @@ async function initDatabase() {
   try { await db.executeMultiple("ALTER TABLE users ADD COLUMN tenant TEXT"); } catch {}
   try { await db.executeMultiple("ALTER TABLE workspaces ADD COLUMN tenant TEXT DEFAULT 'default'"); } catch {}
   try { await db.executeMultiple("ALTER TABLE workspaces ADD COLUMN sheet_analysis TEXT"); } catch {}
+  try { await db.executeMultiple("ALTER TABLE uploaded_files ADD COLUMN stored_path TEXT"); } catch {}
+
+  // Backfill: reconstruct stored_path for existing uploaded files
+  // Multer stores files as {uuid}_{safe_name} in UPLOADS_DIR
+  try {
+    const filesWithoutPath = await dbAll("SELECT id, name FROM uploaded_files WHERE stored_path IS NULL");
+    if (filesWithoutPath.length > 0 && fs.existsSync(UPLOADS_DIR)) {
+      const diskFiles = fs.readdirSync(UPLOADS_DIR);
+      for (const f of filesWithoutPath) {
+        const match = diskFiles.find(d => d.startsWith(f.id));
+        if (match) {
+          const fullPath = path.join(UPLOADS_DIR, match);
+          await dbRun("UPDATE uploaded_files SET stored_path = ? WHERE id = ?", fullPath, f.id);
+        }
+      }
+      const updated = filesWithoutPath.filter(f => diskFiles.some(d => d.startsWith(f.id))).length;
+      if (updated > 0) console.log(`[Migration] Backfilled stored_path for ${updated} existing files`);
+    }
+  } catch (err) {
+    console.warn("[Migration] stored_path backfill failed:", err.message);
+  }
 
   // Backfill: if data exists but no workspaces, create a default workspace
   const wsCountRow = await dbGet("SELECT COUNT(*) AS cnt FROM workspaces");
@@ -1381,8 +1403,8 @@ app.post("/api/upload", upload.array("files", 10), async (req, res) => {
 
       // Insert parent record FIRST (before data_rows to satisfy FK constraint)
       await dbRun(
-        "INSERT INTO uploaded_files (id, name, type, size, columns, row_count) VALUES (?, ?, ?, ?, ?, ?)",
-        fileId, file.originalname, ext.replace(".", ""), file.size, JSON.stringify(columns), rows.length
+        "INSERT INTO uploaded_files (id, name, type, size, columns, row_count, stored_path) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        fileId, file.originalname, ext.replace(".", ""), file.size, JSON.stringify(columns), rows.length, file.path
       );
 
       // Batch insert data rows for performance (critical for Turso over network)
@@ -2531,8 +2553,8 @@ app.post("/api/w/:slug/upload", upload.array("files", 10), async (req, res) => {
       }
 
       await dbRun(
-        "INSERT INTO uploaded_files (id, name, type, size, columns, row_count, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        fileId, file.originalname, ext.replace(".", ""), file.size, JSON.stringify(columns), rows.length, workspaceId
+        "INSERT INTO uploaded_files (id, name, type, size, columns, row_count, workspace_id, stored_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        fileId, file.originalname, ext.replace(".", ""), file.size, JSON.stringify(columns), rows.length, workspaceId, file.path
       );
 
       // Batch insert data rows for performance (critical for Turso over network)
@@ -2653,83 +2675,176 @@ app.post("/api/w/:slug/transform", async (req, res) => {
       const sheetNames = sheets.map(s => s.sheet_name).filter(Boolean);
       const sheetsToProcess = sheetNames.length > 0 ? sheetNames : [null];
 
+      // Cache the XLSX workbook for AI analysis (avoid re-reading per sheet)
+      let cachedWorkbook = null;
+      if ((file.type === "xlsx" || file.type === "xls") && file.stored_path && fs.existsSync(file.stored_path)) {
+        try {
+          const fileBuffer = fs.readFileSync(file.stored_path);
+          cachedWorkbook = XLSX.read(fileBuffer, { type: "buffer" });
+        } catch (err) {
+          console.warn(`[Transform] Could not re-read "${file.name}" for AI analysis:`, err.message);
+        }
+      }
+
       for (const sheetName of sheetsToProcess) {
         const rawRowsDb = sheetName
           ? await dbAll("SELECT row_data FROM data_rows WHERE file_id = ? AND sheet_name = ?", file.id, sheetName)
           : await dbAll("SELECT row_data FROM data_rows WHERE file_id = ?", file.id);
         const rawRows = rawRowsDb.map(r => JSON.parse(r.row_data));
         if (rawRows.length === 0) continue;
-        const nonEmptyRows = rawRows.filter(row => Object.values(row).some(v => v !== null && v !== undefined && v !== ""));
+        let nonEmptyRows = rawRows.filter(row => Object.values(row).some(v => v !== null && v !== undefined && v !== ""));
         if (nonEmptyRows.length === 0) continue;
 
         const originalKeys = Object.keys(nonEmptyRows[0]);
-        const keyMap = {};
-        for (const k of originalKeys) keyMap[k] = normalizeColumnName(k);
-
-        // ── Smart __EMPTY column renaming ──────────────────────────
-        // Financial Excel sheets often have multi-row headers: XLSX takes
-        // row 0 as headers, but the real column names (e.g. month names)
-        // may be a few rows down. Scan the first 10 rows for a "hidden
-        // header row" that provides text labels for __EMPTY columns.
         const emptyKeys = originalKeys.filter(k => k.startsWith("__EMPTY"));
-        if (emptyKeys.length >= 5) {
-          // Find the best "hidden header row": prefer rows with many SHORT
-          // text labels (month names avg ~6 chars) over rows with fewer but
-          // longer descriptive text. Score = textCount / avgLength penalizes
-          // verbose rows that are data, not headers.
-          let bestRow = -1;
-          let bestScore = 0;
-          let bestCount = 0;
-          for (let ri = 0; ri < Math.min(10, nonEmptyRows.length); ri++) {
-            const row = nonEmptyRows[ri];
-            let textCount = 0;
-            let totalLen = 0;
-            for (const ek of emptyKeys) {
-              const v = row[ek];
-              if (typeof v === "string" && v.trim().length > 0 && v.trim().length < 50) {
-                textCount++;
-                totalLen += v.trim().length;
-              }
-            }
-            if (textCount >= 5) {
-              const avgLen = totalLen / textCount;
-              const score = textCount / Math.max(avgLen, 1);
-              if (score > bestScore) { bestScore = score; bestRow = ri; bestCount = textCount; }
-            }
-          }
-          if (bestRow >= 0 && bestCount >= 5) {
-            const headerRow = nonEmptyRows[bestRow];
-            const usedNames = new Set(Object.values(keyMap));
-            for (const ek of emptyKeys) {
-              const label = headerRow[ek];
-              if (typeof label === "string" && label.trim().length > 0 && label.trim().length < 50) {
-                let norm = normalizeColumnName(label.trim());
-                // Deduplicate: append _2, _3 etc. if name already taken
-                if (usedNames.has(norm)) {
-                  let suffix = 2;
-                  while (usedNames.has(`${norm}_${suffix}`)) suffix++;
-                  norm = `${norm}_${suffix}`;
+        const keyMap = {};
+        let aiBusinessContext = null;
+
+        // ── AI-powered Excel intelligence ─────────────────────────
+        // For complex sheets (many __EMPTY columns = merged cells / multi-row headers),
+        // ask the LLM to understand the business structure before renaming.
+        // Falls back to programmatic renaming if AI is unavailable.
+        let aiAnalysisUsed = false;
+        if (emptyKeys.length >= 5 && cachedWorkbook && sheetName) {
+          try {
+            const t0 = Date.now();
+            const xlSheet = cachedWorkbook.Sheets[sheetName];
+            if (xlSheet) {
+              const analysis = await analyzeSheetStructure(xlSheet, XLSX, sheetName, nonEmptyRows, aiComplete);
+              if (analysis && analysis.columnMap) {
+                // Build keyMap from AI analysis
+                const usedNames = new Set();
+                for (const k of originalKeys) {
+                  const aiName = analysis.columnMap[k];
+                  if (aiName === null || aiName === undefined) {
+                    keyMap[k] = normalizeColumnName(k);
+                  } else {
+                    let norm = normalizeColumnName(String(aiName));
+                    if (!norm) norm = normalizeColumnName(k);
+                    if (usedNames.has(norm)) {
+                      let suffix = 2;
+                      while (usedNames.has(`${norm}_${suffix}`)) suffix++;
+                      norm = `${norm}_${suffix}`;
+                    }
+                    keyMap[k] = norm;
+                  }
+                  usedNames.add(keyMap[k]);
                 }
-                keyMap[ek] = norm;
-                usedNames.add(norm);
+
+                // Filter out header rows and pre-data rows identified by AI
+                const skipRows = new Set(analysis.headerRows || []);
+                const dataStart = analysis.dataStartRow || 0;
+                if (dataStart > 0 || skipRows.size > 0) {
+                  nonEmptyRows = nonEmptyRows.filter((_, i) => i >= dataStart && !skipRows.has(i))
+                    .filter(row => Object.values(row).some(v => v !== null && v !== undefined && v !== ""));
+                }
+
+                aiBusinessContext = analysis.businessContext || null;
+                aiAnalysisUsed = true;
+                console.log(`[Transform] AI Excel intelligence for "${sheetName}" (${Date.now() - t0}ms): ${analysis.businessContext} — ${Object.keys(analysis.columnMap).length} cols mapped, data starts row ${analysis.dataStartRow}`);
               }
             }
-            // Also rename any named columns that have a better label in this header row
-            // (e.g. "S1 26" might have "Janvier" as its real month name)
-            for (const k of originalKeys) {
-              if (k.startsWith("__EMPTY")) continue;
-              const label = headerRow[k];
-              if (typeof label === "string" && label.trim().length > 0 && label.trim().length < 50) {
-                const norm = normalizeColumnName(label.trim());
-                if (!usedNames.has(norm)) {
+          } catch (err) {
+            console.warn(`[Transform] AI Excel intelligence failed for "${sheetName}", falling back to programmatic:`, err.message);
+          }
+        }
+
+        // ── AI enrichment for simple tables (CSV, JSON, simple XLSX) ──
+        if (!aiAnalysisUsed && originalKeys.length >= 3 && nonEmptyRows.length >= 5) {
+          try {
+            const t0 = Date.now();
+            const displayTableName = sheetName || path.basename(file.name, path.extname(file.name));
+            const analysis = await analyzeSimpleTableStructure(displayTableName, nonEmptyRows, aiComplete);
+            if (analysis && analysis.columnMap) {
+              const usedNames = new Set();
+              for (const k of originalKeys) {
+                const aiName = analysis.columnMap[k];
+                if (aiName === null || aiName === undefined) {
+                  keyMap[k] = normalizeColumnName(k);
+                } else {
+                  let norm = normalizeColumnName(String(aiName));
+                  if (!norm) norm = normalizeColumnName(k);
+                  if (usedNames.has(norm)) {
+                    let suffix = 2;
+                    while (usedNames.has(`${norm}_${suffix}`)) suffix++;
+                    norm = `${norm}_${suffix}`;
+                  }
                   keyMap[k] = norm;
+                }
+                usedNames.add(keyMap[k]);
+              }
+
+              const skipRows = new Set(analysis.headerRows || []);
+              const dataStart = analysis.dataStartRow || 0;
+              if (dataStart > 0 || skipRows.size > 0) {
+                nonEmptyRows = nonEmptyRows.filter((_, i) => i >= dataStart && !skipRows.has(i))
+                  .filter(row => Object.values(row).some(v => v !== null && v !== undefined && v !== ""));
+              }
+
+              aiBusinessContext = analysis.businessContext || null;
+              aiAnalysisUsed = true;
+              console.log(`[Transform] AI table enrichment for "${displayTableName}" (${Date.now() - t0}ms): ${analysis.businessContext} — ${Object.keys(analysis.columnMap).length} cols mapped`);
+            }
+          } catch (err) {
+            console.warn(`[Transform] AI table enrichment failed, falling back to programmatic:`, err.message);
+          }
+        }
+
+        // ── Programmatic fallback: smart __EMPTY renaming ─────────
+        if (!aiAnalysisUsed) {
+          for (const k of originalKeys) keyMap[k] = normalizeColumnName(k);
+
+          if (emptyKeys.length >= 5) {
+            let bestRow = -1;
+            let bestScore = 0;
+            let bestCount = 0;
+            for (let ri = 0; ri < Math.min(10, nonEmptyRows.length); ri++) {
+              const row = nonEmptyRows[ri];
+              let textCount = 0;
+              let totalLen = 0;
+              for (const ek of emptyKeys) {
+                const v = row[ek];
+                if (typeof v === "string" && v.trim().length > 0 && v.trim().length < 50) {
+                  textCount++;
+                  totalLen += v.trim().length;
+                }
+              }
+              if (textCount >= 5) {
+                const avgLen = totalLen / textCount;
+                const score = textCount / Math.max(avgLen, 1);
+                if (score > bestScore) { bestScore = score; bestRow = ri; bestCount = textCount; }
+              }
+            }
+            if (bestRow >= 0 && bestCount >= 5) {
+              const headerRow = nonEmptyRows[bestRow];
+              const usedNames = new Set(Object.values(keyMap));
+              for (const ek of emptyKeys) {
+                const label = headerRow[ek];
+                if (typeof label === "string" && label.trim().length > 0 && label.trim().length < 50) {
+                  let norm = normalizeColumnName(label.trim());
+                  if (usedNames.has(norm)) {
+                    let suffix = 2;
+                    while (usedNames.has(`${norm}_${suffix}`)) suffix++;
+                    norm = `${norm}_${suffix}`;
+                  }
+                  keyMap[ek] = norm;
                   usedNames.add(norm);
                 }
               }
+              for (const k of originalKeys) {
+                if (k.startsWith("__EMPTY")) continue;
+                const label = headerRow[k];
+                if (typeof label === "string" && label.trim().length > 0 && label.trim().length < 50) {
+                  const norm = normalizeColumnName(label.trim());
+                  if (!usedNames.has(norm)) {
+                    keyMap[k] = norm;
+                    usedNames.add(norm);
+                  }
+                }
+              }
+              nonEmptyRows.splice(bestRow, 1);
+              console.log(`[Transform] Programmatic: renamed ${bestCount} __EMPTY columns using header row ${bestRow} in "${sheetName}"`);
             }
-            // Remove the header row from data — it's metadata, not data
-            nonEmptyRows.splice(bestRow, 1);
-            console.log(`[Transform] Renamed ${bestCount} __EMPTY columns using header row ${bestRow} in "${sheetName}"`);
           }
         }
 
@@ -2784,6 +2899,7 @@ app.post("/api/w/:slug/transform", async (req, res) => {
           fileName: file.name,
           columns,
           converted,
+          aiBusinessContext,
         });
       }
     }
@@ -2874,12 +2990,50 @@ app.post("/api/w/:slug/transform", async (req, res) => {
       }
     }
 
-    // Persist sheet analysis
-    if (sheetAnalysis.hasMultiSheetPatterns) {
+    // Persist sheet analysis + AI business context
+    const aiContexts = parsedSheets
+      .filter(p => p.aiBusinessContext)
+      .map(p => `${p.displayName}: ${p.aiBusinessContext}`);
+    if (sheetAnalysis.hasMultiSheetPatterns || aiContexts.length > 0) {
+      const analysisPayload = {
+        ...sheetAnalysis,
+        aiBusinessContexts: aiContexts.length > 0 ? aiContexts : undefined,
+      };
       await dbRun("UPDATE workspaces SET sheet_analysis = ? WHERE id = ?",
-        JSON.stringify(sheetAnalysis), workspaceId);
+        JSON.stringify(analysisPayload), workspaceId);
     } else {
       await dbRun("UPDATE workspaces SET sheet_analysis = NULL WHERE id = ?", workspaceId);
+    }
+
+    // Persist AI business context into project_context for enriched prompts
+    if (aiContexts.length > 0) {
+      const contextText = "[Auto-détecté] " + aiContexts.join("\n");
+      const existing = await dbGet("SELECT * FROM project_context WHERE workspace_id = ?", workspaceId);
+      if (existing) {
+        // Only update if free_text doesn't already contain an auto-detected context
+        const currentText = existing.free_text || "";
+        if (!currentText.includes("[Auto-détecté]")) {
+          await dbRun(
+            "UPDATE project_context SET free_text = ?, updated_at = CURRENT_TIMESTAMP WHERE workspace_id = ?",
+            (currentText ? currentText + "\n\n" : "") + contextText,
+            workspaceId
+          );
+        } else {
+          // Replace existing auto-detected block
+          const cleaned = currentText.replace(/\[Auto-détecté\][^\n]*(\n[^\[]*)?/g, "").trim();
+          await dbRun(
+            "UPDATE project_context SET free_text = ?, updated_at = CURRENT_TIMESTAMP WHERE workspace_id = ?",
+            (cleaned ? cleaned + "\n\n" : "") + contextText,
+            workspaceId
+          );
+        }
+      } else {
+        await dbRun(
+          "INSERT INTO project_context (project_name, free_text, workspace_id, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+          null, contextText, workspaceId
+        );
+      }
+      console.log(`[Transform] Business context stored: ${contextText}`);
     }
 
     await dbRun("UPDATE workspaces SET row_count = (SELECT COUNT(*) FROM clean_data WHERE workspace_id = ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -2902,6 +3056,7 @@ app.post("/api/w/:slug/transform", async (req, res) => {
       nullValues: allCols.reduce((s, c) => s + (c.nullCount || 0), 0),
       mergedColumn: commonCols.length > 0 ? commonCols[0].column : null,
       sheetAnalysis: sheetAnalysis.hasMultiSheetPatterns ? sheetAnalysis : undefined,
+      aiBusinessContexts: aiContexts.length > 0 ? aiContexts : undefined,
     };
     if (commonCols.length > 0) response.mergeOpportunities = commonCols;
     res.json(response);
