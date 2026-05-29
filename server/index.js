@@ -4219,10 +4219,14 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
     delete improvedSection.data_sets_preview;
 
     // ── Helper: execute pivot on data ──
+    // Transposes a table: numeric columns become X-axis rows, pivotCol values become series.
     const executePivot = (data, pivotCol, newXKey) => {
       const skipCols = new Set([pivotCol, "_count", "data_sources"]);
-      const valueCols = Object.keys(data[0]).filter(k => !skipCols.has(k));
-      const seriesNames = [...new Set(data.map(r => r[pivotCol]).filter(Boolean))];
+      // Only numeric columns become value rows (skip stray string columns)
+      const valueCols = Object.keys(data[0]).filter(k =>
+        !skipCols.has(k) && data.some(r => typeof r[k] === "number")
+      );
+      const seriesNames = [...new Set(data.map(r => r[pivotCol]).filter(Boolean))].map(String);
       if (valueCols.length === 0 || seriesNames.length === 0) return null;
 
       const pivoted = valueCols.map(col => {
@@ -4300,15 +4304,29 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
           improvedSection.yKeys.some(k => !actualCols.has(k));
 
         // ── Auto-pivot: if LLM changed keys to non-existent columns, try pivot ──
-        if ((xKeyMismatch || yKeysMismatch) && section.data.length >= 2 && section.data.length <= 20) {
+        if ((xKeyMismatch || yKeysMismatch) && section.data.length >= 2 && section.data.length <= 30) {
           const sample = section.data[0];
           const cols = Object.keys(sample);
           const numericCols = cols.filter(k => k !== "_count" && k !== "data_sources" && typeof sample[k] === "number");
-          const strCols = cols.filter(k => typeof sample[k] === "string");
-          if (numericCols.length >= 4 && strCols.length >= 1) {
-            // Auto-detect pivot column (prefer _sheet)
-            const pivotCol = strCols.includes("_sheet") ? "_sheet" : strCols[0];
-            const newXKey = improvedSection.xKey || improvedSection.config?.xKey || "période";
+          // Candidate pivot columns: string columns with 2-12 distinct values (suitable as series)
+          const strCols = cols.filter(k => {
+            if (typeof sample[k] !== "string") return false;
+            const distinct = new Set(section.data.map(r => r[k]).filter(v => v != null));
+            return distinct.size >= 2 && distinct.size <= 12;
+          });
+          // Pivot is viable with >= 2 numeric columns (periods) + a categorical column (series)
+          // Lowered from >= 4 to handle quarterly/semester data (T1-T4, S1-S2)
+          if (numericCols.length >= 2 && strCols.length >= 1) {
+            // Prefer _sheet; else the string column with the fewest distinct values
+            let pivotCol = strCols.includes("_sheet") ? "_sheet" : null;
+            if (!pivotCol) {
+              pivotCol = strCols.reduce((best, k) => {
+                const size = new Set(section.data.map(r => r[k]).filter(v => v != null)).size;
+                const bestSize = new Set(section.data.map(r => r[best] ?? r[strCols[0]]).filter(v => v != null)).size;
+                return size < bestSize ? k : best;
+              }, strCols[0]);
+            }
+            const newXKey = improvedSection.config?.xKey || improvedSection.xKey || "période";
             const pivotResult = executePivot(section.data, pivotCol, newXKey);
             if (pivotResult) {
               improvedSection.data = pivotResult.pivoted;
@@ -4317,9 +4335,12 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
               improvedSection.config.yKeys = pivotResult.seriesNames;
               improvedSection.xKey = newXKey;
               improvedSection.yKeys = pivotResult.seriesNames;
-              if (!improvedSection.config.names) improvedSection.config.names = pivotResult.seriesNames;
-              if (!improvedSection.config.colors) improvedSection.config.colors = pivotResult.colors;
-              console.log(`[improve-section] Auto-pivoted: ${section.data.length} rows → ${pivotResult.pivoted.length} rows × ${pivotResult.seriesNames.length} series`);
+              // Map readable names to series; keep LLM names only if they match count
+              if (!improvedSection.config.names || improvedSection.config.names.length !== pivotResult.seriesNames.length) {
+                improvedSection.config.names = pivotResult.seriesNames;
+              }
+              improvedSection.config.colors = pivotResult.colors;
+              console.log(`[improve-section] Auto-pivoted on "${pivotCol}": ${section.data.length} rows → ${pivotResult.pivoted.length} rows × ${pivotResult.seriesNames.length} series`);
             } else {
               // Auto-pivot failed, fall back to original keys
               if (xKeyMismatch) improvedSection.xKey = section.xKey;
