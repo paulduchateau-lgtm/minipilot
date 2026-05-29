@@ -11,13 +11,20 @@ export default function DashboardPage({ reports, reportsLoading, reportsGenerati
   const otherReports = allPrivate.filter(r => !r.starred);
   const total = sharedReports.length + allPrivate.length;
 
-  // Compute overview KPIs from shared reports (take first 4)
+  // Compute overview KPIs from shared reports (take first 4 valid ones)
+  const isValidKpi = (kpi) => {
+    if (!kpi.value) return false;
+    const v = String(kpi.value);
+    if (/\b(Table|GroupBy|Aggregate|Filter|SELECT|FROM|WHERE)\s*:/i.test(v)) return false;
+    if (v.length > 40) return false;
+    return true;
+  };
   const overviewKpis = [];
   for (const report of sharedReports) {
     if (overviewKpis.length >= 4) break;
     const kpis = typeof report.kpis === "string" ? JSON.parse(report.kpis) : (report.kpis || []);
     for (const kpi of kpis) {
-      if (overviewKpis.length < 4) overviewKpis.push(kpi);
+      if (overviewKpis.length < 4 && isValidKpi(kpi)) overviewKpis.push(kpi);
     }
   }
 

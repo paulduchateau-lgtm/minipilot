@@ -13,7 +13,17 @@ function getIcon(iconName) {
 export default function ReportCard({ report, isFav, onToggleFav, onDelete, onRestore, onClick, isShared, isTrashed }) {
   const Icon = getIcon(report.icon);
   const color = report.color || "#A5D900";
-  const kpis = typeof report.kpis === "string" ? JSON.parse(report.kpis) : (report.kpis || []);
+  const rawKpis = typeof report.kpis === "string" ? JSON.parse(report.kpis) : (report.kpis || []);
+  // Filter out malformed KPIs where the LLM put a spec description instead of a value
+  const kpis = rawKpis.filter(kpi => {
+    if (!kpi.value) return false;
+    const v = String(kpi.value);
+    // Spec-like values contain keywords like "Table:", "GroupBy:", "Aggregate:", "Filter:"
+    if (/\b(Table|GroupBy|Aggregate|Filter|SELECT|FROM|WHERE)\s*:/i.test(v)) return false;
+    // Values longer than 40 chars are likely descriptions, not numeric KPIs
+    if (v.length > 40) return false;
+    return true;
+  });
 
   return (
     <div
