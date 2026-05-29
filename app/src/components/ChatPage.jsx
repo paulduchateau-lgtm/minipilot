@@ -192,7 +192,14 @@ export default function ChatPage({ reports, toggleStar, openReport, onReportGene
 
   const renderReportPreview = (reportData, msgIndex, isSaved) => {
     if (!reportData) return null;
-    const kpis = typeof reportData.kpis === "string" ? JSON.parse(reportData.kpis) : (reportData.kpis || []);
+    const rawKpis = typeof reportData.kpis === "string" ? JSON.parse(reportData.kpis) : (reportData.kpis || []);
+    const kpis = rawKpis.filter(kpi => {
+      if (!kpi.value) return false;
+      const v = String(kpi.value);
+      if (/\b(Table|GroupBy|Aggregate|Filter|SELECT|FROM|WHERE)\s*:/i.test(v)) return false;
+      if (v.length > 40) return false;
+      return true;
+    });
     const sections = typeof reportData.sections === "string" ? JSON.parse(reportData.sections) : (reportData.sections || []);
 
     return (

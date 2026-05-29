@@ -76,6 +76,28 @@ export async function executeReportSpec(dbAll, workspaceId, spec) {
     return true;
   });
 
+  // ── Compute or validate KPIs ──
+  const rawKpis = spec.kpis || [];
+  const computedKpis = [];
+  for (const kpi of rawKpis) {
+    if (!kpi || !kpi.label) continue;
+    const val = String(kpi.value || "");
+
+    // If the LLM put a spec description instead of a value, try to compute it
+    if (/\b(Table|GroupBy|Aggregate|Filter)\s*:/i.test(val) || val.length > 60) {
+      // Try to parse the spec and compute the KPI
+      const computed = await tryComputeKpi(dbAll, workspaceId, kpi, val);
+      if (computed) {
+        computedKpis.push(computed);
+      } else {
+        console.warn(`[QueryBuilder] Dropping malformed KPI "${kpi.label}": value is a spec, not a number`);
+      }
+      continue;
+    }
+
+    computedKpis.push(kpi);
+  }
+
   return {
     id: spec.id,
     title: spec.title,
@@ -83,9 +105,104 @@ export async function executeReportSpec(dbAll, workspaceId, spec) {
     objective: spec.objective,
     color: spec.color || "#4A90B8",
     icon: spec.icon || "BarChart3",
-    kpis: spec.kpis || [],
+    kpis: computedKpis,
     sections: validSections,
   };
+}
+
+/**
+ * Try to compute a KPI from a spec-like value string.
+ * Pattern: "Table: X, GroupBy: Y, Aggregate: sum(a,b,c), Filter: Z"
+ */
+async function tryComputeKpi(dbAll, workspaceId, kpi, specStr) {
+  try {
+    // Parse the spec string
+    const tableMatch = specStr.match(/Table:\s*(\S+)/i);
+    const filterMatch = specStr.match(/Filter:\s*(.+?)(?:,\s*(?:GroupBy|Aggregate|Table)|$)/i);
+    const aggMatch = specStr.match(/Aggregate:\s*(\w+)\(([^)]+)\)/i);
+
+    if (!tableMatch || !aggMatch) return null;
+
+    const tableName = tableMatch[1].replace(/,\s*$/, "");
+    const aggFn = aggMatch[1].toLowerCase(); // sum, avg, count, etc.
+    const aggCols = aggMatch[2].split(",").map(c => c.trim());
+
+    // Load rows
+    let rows = await loadTableRows(dbAll, workspaceId, tableName);
+    if (rows.length === 0) return null;
+
+    // Apply filter if present
+    if (filterMatch) {
+      const filterVal = filterMatch[1].trim();
+      // Try to find matching rows by checking _sheet or any text column
+      rows = rows.filter(row => {
+        return Object.values(row).some(v =>
+          typeof v === "string" && v.toLowerCase().includes(filterVal.toLowerCase())
+        ) || (row._sheet && row._sheet.toLowerCase().includes(filterVal.toLowerCase()));
+      });
+    }
+
+    if (rows.length === 0) return null;
+
+    // Compute aggregate across all specified columns
+    let total = 0;
+    let count = 0;
+    for (const row of rows) {
+      for (const col of aggCols) {
+        const v = row[col];
+        if (v !== null && v !== undefined && v !== "") {
+          const n = Number(v);
+          if (!isNaN(n)) { total += n; count++; }
+        }
+      }
+    }
+
+    if (count === 0) return null;
+
+    let result;
+    switch (aggFn) {
+      case "sum": result = total; break;
+      case "avg": result = total / count; break;
+      case "count": result = count; break;
+      case "min": case "max": {
+        const nums = [];
+        for (const row of rows) {
+          for (const col of aggCols) {
+            const n = Number(row[col]);
+            if (!isNaN(n)) nums.push(n);
+          }
+        }
+        result = aggFn === "min" ? Math.min(...nums) : Math.max(...nums);
+        break;
+      }
+      default: result = total;
+    }
+
+    // Format the value
+    const formatted = formatKpiValue(result);
+
+    return {
+      label: kpi.label,
+      value: formatted,
+      trend: kpi.trend || null,
+      bad: kpi.bad || false,
+    };
+  } catch (err) {
+    console.warn(`[QueryBuilder] Failed to compute KPI "${kpi.label}":`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Format a numeric value for KPI display (e.g. 2680000 → "2,68 M€")
+ */
+function formatKpiValue(n) {
+  if (n === 0) return "0";
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}${round2(abs / 1_000_000).toLocaleString("fr-FR")} M€`;
+  if (abs >= 1_000) return `${sign}${round2(abs / 1_000).toLocaleString("fr-FR")} K€`;
+  return `${sign}${round2(abs).toLocaleString("fr-FR")}`;
 }
 
 /**

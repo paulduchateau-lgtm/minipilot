@@ -158,7 +158,14 @@ export default function PublicReportPage() {
   }
 
   const { report, comments = [], publishedAt } = data;
-  const kpis = typeof report.kpis === "string" ? JSON.parse(report.kpis) : (report.kpis || []);
+  const rawKpis = typeof report.kpis === "string" ? JSON.parse(report.kpis) : (report.kpis || []);
+  const kpis = rawKpis.filter(kpi => {
+    if (!kpi.value) return false;
+    const v = String(kpi.value);
+    if (/\b(Table|GroupBy|Aggregate|Filter|SELECT|FROM|WHERE)\s*:/i.test(v)) return false;
+    if (v.length > 40) return false;
+    return true;
+  });
   const sections = typeof report.sections === "string" ? JSON.parse(report.sections) : (report.sections || []);
   const color = report.color || (isTheFork ? TF.deepGreen : "var(--color-amber, #C4872E)");
   const Icon = getIcon(report.icon);
