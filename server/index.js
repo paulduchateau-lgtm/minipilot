@@ -22,7 +22,7 @@ import { initScheduler, registerSchedule, unregisterSchedule, executeSchedule, b
 import { materialize, getMaterializedContext } from './materializer.js';
 import { streamAnthropicSSE } from './stream.js';
 import { registerInterpretRoutes } from './interpret.js';
-import { executeReportSpec } from './query-builder.js';
+import { executeReportSpec, computeSection } from './query-builder.js';
 import { analyzeSheetRelationships, buildSheetContextBlock, buildSheetSummary } from './sheet-analyzer.js';
 import { analyzeSheetStructure, analyzeSimpleTableStructure, applySheetAnalysis } from './excel-intelligence.js';
 import cron from 'node-cron';
@@ -4098,6 +4098,8 @@ app.post("/api/w/:slug/reports/:id/improve-section", async (req, res) => {
     if (section.nameKey) compactSection.nameKey = section.nameKey;
     if (section.valueKey) compactSection.valueKey = section.valueKey;
     if (section.columns) compactSection.columns = section.columns;
+    // Include spec fields so LLM can request re-computation with different grouping
+    if (section._spec) compactSection._spec = section._spec;
     if (Array.isArray(section.data) && section.data.length > 0) {
       compactSection.dataPreview = section.data.slice(0, 5);
       compactSection.dataRowCount = section.data.length;
@@ -4127,8 +4129,8 @@ app.post("/api/w/:slug/reports/:id/improve-section", async (req, res) => {
 PIVOT DISPONIBLE :
 Les données actuelles ont ${section.data.length} lignes et ${numericCols.length} colonnes numériques.
 Colonnes catégorielles : ${pivotColCandidates}
-Si l'utilisateur demande de mettre les colonnes numériques en axe X (ex: "les dates en abscisses") et
-d'avoir une courbe/barre par ligne (ex: "une courbe par scénario"), utilise le PIVOT.
+Si l'utilisateur demande une courbe d'évolution, un graphique temporel, ou veut les colonnes numériques en axe X
+et une série par ligne (ex: "une courbe par scénario"), tu DOIS utiliser le PIVOT.
 Pour pivoter, ajoute ces champs dans ta réponse JSON :
   "_transform": "pivot",
   "_pivotColumn": "<colonne_dont_les_valeurs_deviennent_les_series>" (ex: "_sheet"),
@@ -4136,8 +4138,27 @@ Pour pivoter, ajoute ces champs dans ta réponse JSON :
 Le serveur transposera automatiquement : les colonnes numériques deviennent les lignes X,
 et les valeurs de _pivotColumn deviennent les séries (yKeys).
 Après le pivot, configure normalement type, config.xKey, config.colors, config.names.
-Les yKeys seront automatiquement dérivées du pivot.`;
+Les yKeys seront automatiquement dérivées du pivot.
+IMPORTANT : si la demande implique une courbe d'évolution dans le temps (mois, trimestre, année),
+utilise TOUJOURS le pivot quand les données ont peu de lignes et beaucoup de colonnes numériques.`;
       }
+    }
+
+    // Spec-based re-computation hint
+    let specHint = "";
+    if (section._spec) {
+      specHint = `
+RE-COMPUTATION DISPONIBLE :
+Cette section a été calculée depuis les données brutes avec la spec suivante :
+  Table source : ${section._spec.table}
+  GroupBy : ${section._spec.groupBy || "aucun"}
+  Colonnes de valeur : ${JSON.stringify(section._spec.valueColumns || [])}
+  Filtre : ${section._spec.filter ? JSON.stringify(section._spec.filter) : "aucun"}
+Si la demande nécessite un regroupement DIFFÉRENT (ex: grouper par mois au lieu de scénario),
+retourne un champ "_recompute" avec la nouvelle spec :
+  "_recompute": { "table": "...", "groupBy": "...", "valueColumns": [...], "filter": {...} }
+Le serveur recalculera les données depuis la base. Les valueColumns peuvent être des strings
+ou des objets { "column": "col", "aggregate": "sum|avg|count|min|max" }.`;
     }
 
     const prompt = `${buildExpertiseIdentity(context)} Tu es un expert en data-visualisation et amélioration de rapports analytiques.
@@ -4158,9 +4179,10 @@ CONSIGNES :
 - Pour afficher des libellés lisibles dans les légendes, utilise "config.names" : un tableau de strings dans le même ordre que yKeys.
   Exemple : si yKeys = ["ca_mensuel", "charges"], tu peux mettre config.names = ["CA Mensuel", "Charges d'exploitation"].
 - Tu PEUX modifier ou créer un objet "config" (avec xKey, yKeys, colors, names).
-- NE modifie PAS les lignes de données (data/dataPreview) SAUF si tu utilises le PIVOT.
+- NE modifie PAS les lignes de données (data/dataPreview) SAUF si tu utilises le PIVOT ou la RE-COMPUTATION.
 - Améliore : title, insight, type, config, xKey, yKeys si pertinent.
 - Ajoute un champ "insight" (1-2 phrases d'analyse) si absent ou faible.
+- Ne copie JAMAIS l'insight ou l'interprétation d'une autre section. L'insight doit correspondre UNIQUEMENT aux données de CETTE section.
 
 TRANSFORMATIONS SUPPORTÉES :
 - CHANGEMENT DE TYPE : bar → line (courbes), line → bar, bar → area_multi, etc. Quand tu changes de type, adapte TOUJOURS le config au format attendu par le nouveau type :
@@ -4169,6 +4191,7 @@ TRANSFORMATIONS SUPPORTÉES :
   * "pie_multi" : data_sets = [{label, data: [{name, value}]}]
 - INVERSION SIMPLE D'AXES : si les axes peuvent être échangés sans pivot (xKey et yKeys sont tous des colonnes existantes), échange-les directement.
 ${pivotHint}
+${specHint}
 - Les colonnes disponibles dans les données sont : ${compactSection.availableColumns ? compactSection.availableColumns.join(", ") : "voir dataPreview"}
 Réponds UNIQUEMENT avec le JSON valide de la section.`;
 
@@ -4193,52 +4216,77 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
     delete improvedSection.dataPreview;
     delete improvedSection.dataRowCount;
     delete improvedSection.availableColumns;
+    delete improvedSection.data_sets_preview;
 
-    // ── Handle pivot transform (transpose rows ↔ columns) ──
-    if (improvedSection._transform === "pivot" && Array.isArray(section.data) && section.data.length > 0) {
+    // ── Helper: execute pivot on data ──
+    const executePivot = (data, pivotCol, newXKey) => {
+      const skipCols = new Set([pivotCol, "_count", "data_sources"]);
+      const valueCols = Object.keys(data[0]).filter(k => !skipCols.has(k));
+      const seriesNames = [...new Set(data.map(r => r[pivotCol]).filter(Boolean))];
+      if (valueCols.length === 0 || seriesNames.length === 0) return null;
+
+      const pivoted = valueCols.map(col => {
+        const label = col.replace(/_/g, " ").replace(/\b\w/g, ch => ch.toUpperCase()).trim();
+        const row = { [newXKey]: label };
+        for (const srcRow of data) {
+          const series = srcRow[pivotCol];
+          if (series != null) row[String(series)] = srcRow[col];
+        }
+        return row;
+      });
+      const COLORS = ["#C8FF3C", "#4A90B8", "#C45A32", "#D4A03A", "#3A8A4A", "#8B7EC8"];
+      return { pivoted, seriesNames, colors: seriesNames.map((_, i) => COLORS[i % COLORS.length]) };
+    };
+
+    // ── Route 1: Re-compute from modified spec ──
+    if (improvedSection._recompute && improvedSection._recompute.table) {
+      try {
+        const newSpec = {
+          title: improvedSection.title || section.title,
+          type: improvedSection.type || section.type,
+          ...improvedSection._recompute,
+          config: improvedSection.config,
+          insight: improvedSection.insight,
+        };
+        const recomputed = await computeSection(dbAll, ws.id, newSpec);
+        improvedSection.data = recomputed.data;
+        improvedSection._spec = recomputed._spec;
+        if (!improvedSection.config && recomputed.config) improvedSection.config = recomputed.config;
+        console.log(`[improve-section] Re-computed from spec: ${recomputed.data?.length || 0} rows`);
+      } catch (err) {
+        console.warn(`[improve-section] Re-computation failed, keeping original data:`, err.message);
+        if (section.data && Array.isArray(section.data)) improvedSection.data = section.data;
+      }
+      delete improvedSection._recompute;
+
+    // ── Route 2: Explicit pivot transform ──
+    } else if (improvedSection._transform === "pivot" && Array.isArray(section.data) && section.data.length > 0) {
       const pivotCol = improvedSection._pivotColumn || "_sheet";
       const newXKey = improvedSection._pivotXKey || "mois";
       delete improvedSection._transform;
       delete improvedSection._pivotColumn;
       delete improvedSection._pivotXKey;
 
-      // Execute pivot: columns become X-axis rows, pivotCol values become series
-      const skipCols = new Set([pivotCol, "_count", "data_sources"]);
-      const valueCols = Object.keys(section.data[0]).filter(k => !skipCols.has(k));
-      const seriesNames = [...new Set(section.data.map(r => r[pivotCol]).filter(Boolean))];
-
-      if (valueCols.length > 0 && seriesNames.length > 0) {
-        const pivoted = valueCols.map(col => {
-          const label = col.replace(/_/g, " ").replace(/\b\w/g, ch => ch.toUpperCase()).trim();
-          const row = { [newXKey]: label };
-          for (const srcRow of section.data) {
-            const series = srcRow[pivotCol];
-            if (series != null) row[String(series)] = srcRow[col];
-          }
-          return row;
-        });
-
-        improvedSection.data = pivoted;
+      const pivotResult = executePivot(section.data, pivotCol, newXKey);
+      if (pivotResult) {
+        improvedSection.data = pivotResult.pivoted;
         if (!improvedSection.config) improvedSection.config = {};
         improvedSection.config.xKey = newXKey;
-        improvedSection.config.yKeys = seriesNames;
+        improvedSection.config.yKeys = pivotResult.seriesNames;
         improvedSection.xKey = newXKey;
-        improvedSection.yKeys = seriesNames;
-        if (!improvedSection.config.names) improvedSection.config.names = seriesNames;
-        const COLORS = ["#C8FF3C", "#4A90B8", "#C45A32", "#D4A03A", "#3A8A4A", "#8B7EC8"];
-        if (!improvedSection.config.colors) {
-          improvedSection.config.colors = seriesNames.map((_, i) => COLORS[i % COLORS.length]);
-        }
-        console.log(`[improve-section] Pivoted: ${section.data.length} rows × ${valueCols.length} cols → ${pivoted.length} rows × ${seriesNames.length} series`);
+        improvedSection.yKeys = pivotResult.seriesNames;
+        if (!improvedSection.config.names) improvedSection.config.names = pivotResult.seriesNames;
+        if (!improvedSection.config.colors) improvedSection.config.colors = pivotResult.colors;
+        console.log(`[improve-section] Pivoted: ${section.data.length} rows → ${pivotResult.pivoted.length} rows × ${pivotResult.seriesNames.length} series`);
       } else {
-        // Pivot failed — fall back to original data
         if (section.data && Array.isArray(section.data)) improvedSection.data = section.data;
       }
     } else {
-      // No pivot — clean up any stray transform fields
+      // No explicit pivot/recompute — clean up stray transform fields
       delete improvedSection._transform;
       delete improvedSection._pivotColumn;
       delete improvedSection._pivotXKey;
+      delete improvedSection._recompute;
 
       // Re-inject original data
       if (section.data && Array.isArray(section.data)) improvedSection.data = section.data;
@@ -4247,21 +4295,51 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
       // Validate AI-provided keys against actual data columns
       const actualCols = section.data?.length > 0 ? new Set(Object.keys(section.data[0])) : null;
       if (actualCols) {
-        if (improvedSection.xKey && !actualCols.has(improvedSection.xKey)) {
-          improvedSection.xKey = section.xKey;
-        }
-        if (improvedSection.yKeys?.length) {
-          const badKeys = improvedSection.yKeys.filter(k => !actualCols.has(k));
-          if (badKeys.length > 0 && section.yKeys?.length) {
-            if (!improvedSection.config) improvedSection.config = {};
-            if (!improvedSection.config.names) {
-              improvedSection.config.names = improvedSection.yKeys;
+        const xKeyMismatch = improvedSection.xKey && !actualCols.has(improvedSection.xKey);
+        const yKeysMismatch = improvedSection.yKeys?.length > 0 &&
+          improvedSection.yKeys.some(k => !actualCols.has(k));
+
+        // ── Auto-pivot: if LLM changed keys to non-existent columns, try pivot ──
+        if ((xKeyMismatch || yKeysMismatch) && section.data.length >= 2 && section.data.length <= 20) {
+          const sample = section.data[0];
+          const cols = Object.keys(sample);
+          const numericCols = cols.filter(k => k !== "_count" && k !== "data_sources" && typeof sample[k] === "number");
+          const strCols = cols.filter(k => typeof sample[k] === "string");
+          if (numericCols.length >= 4 && strCols.length >= 1) {
+            // Auto-detect pivot column (prefer _sheet)
+            const pivotCol = strCols.includes("_sheet") ? "_sheet" : strCols[0];
+            const newXKey = improvedSection.xKey || improvedSection.config?.xKey || "période";
+            const pivotResult = executePivot(section.data, pivotCol, newXKey);
+            if (pivotResult) {
+              improvedSection.data = pivotResult.pivoted;
+              if (!improvedSection.config) improvedSection.config = {};
+              improvedSection.config.xKey = newXKey;
+              improvedSection.config.yKeys = pivotResult.seriesNames;
+              improvedSection.xKey = newXKey;
+              improvedSection.yKeys = pivotResult.seriesNames;
+              if (!improvedSection.config.names) improvedSection.config.names = pivotResult.seriesNames;
+              if (!improvedSection.config.colors) improvedSection.config.colors = pivotResult.colors;
+              console.log(`[improve-section] Auto-pivoted: ${section.data.length} rows → ${pivotResult.pivoted.length} rows × ${pivotResult.seriesNames.length} series`);
+            } else {
+              // Auto-pivot failed, fall back to original keys
+              if (xKeyMismatch) improvedSection.xKey = section.xKey;
+              if (yKeysMismatch && section.yKeys?.length) improvedSection.yKeys = section.yKeys;
             }
-            improvedSection.yKeys = section.yKeys;
+          } else {
+            // Not pivot-eligible, fall back to original keys
+            if (xKeyMismatch) improvedSection.xKey = section.xKey;
+            if (yKeysMismatch && section.yKeys?.length) {
+              if (!improvedSection.config) improvedSection.config = {};
+              if (!improvedSection.config.names) improvedSection.config.names = improvedSection.yKeys;
+              improvedSection.yKeys = section.yKeys;
+            }
           }
         }
       }
     }
+
+    // Preserve spec for future re-computation
+    if (section._spec && !improvedSection._spec) improvedSection._spec = section._spec;
 
     if (section.xKey && !improvedSection.xKey) improvedSection.xKey = section.xKey;
     if (section.yKeys && !improvedSection.yKeys) improvedSection.yKeys = section.yKeys;
