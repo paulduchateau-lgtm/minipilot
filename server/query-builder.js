@@ -208,7 +208,7 @@ function formatKpiValue(n) {
 /**
  * Compute a single section from its spec.
  */
-async function computeSection(dbAll, workspaceId, spec) {
+export async function computeSection(dbAll, workspaceId, spec) {
   const { title, type, table, groupBy, valueColumns, filter, config, insight } = spec;
 
   if (!table) {
@@ -269,6 +269,8 @@ async function computeSection(dbAll, workspaceId, spec) {
     insight: insight || null,
     data,
     config: config || buildDefaultConfig(type, groupBy, valueColumns),
+    // Preserve spec fields for re-computation (improve-section)
+    ...(table ? { _spec: { table, groupBy, valueColumns, filter: filter || null } } : {}),
   };
 }
 

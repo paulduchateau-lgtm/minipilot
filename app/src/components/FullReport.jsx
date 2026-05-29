@@ -75,6 +75,17 @@ export default function FullReport({ report, isFav, onToggleFav, api, onReportUp
         sections[sectionIndex] = result.section;
         const updated = { ...report, sections };
         if (onReportUpdated) onReportUpdated(updated);
+        // Clear stale interpretation for this section (data/type may have changed)
+        setInterpretations(prev => {
+          const n = { ...prev };
+          delete n[sectionIndex];
+          return n;
+        });
+        setInterpretHidden(prev => {
+          const n = { ...prev };
+          delete n[sectionIndex];
+          return n;
+        });
         setSectionImproving(prev => {
           const n = { ...prev };
           delete n[sectionIndex];
