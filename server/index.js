@@ -3713,6 +3713,7 @@ app.post("/api/w/:slug/reports/:id/iterate", async (req, res) => {
         sections: (report.sections || []).map(s => {
           const cs = { title: s.title, type: s.type };
           if (s.interpretation) cs.interpretation = s.interpretation;
+          if (s.insight) cs.insight = s.insight;
           if (s.dataSource) cs.dataSource = s.dataSource;
           // For tables/charts: include column structure + first 3 rows only
           if (Array.isArray(s.data) && s.data.length > 0) {
@@ -3722,7 +3723,9 @@ app.post("/api/w/:slug/reports/:id/iterate", async (req, res) => {
           } else if (s.data != null) {
             cs.data = s.data;
           }
-          // Keep chart config keys
+          // Keep chart config so AI knows the current chart setup
+          if (s.config) cs.config = s.config;
+          // Fallback: section-level keys (legacy format)
           if (s.xKey) cs.xKey = s.xKey;
           if (s.yKeys) cs.yKeys = s.yKeys;
           if (s.nameKey) cs.nameKey = s.nameKey;
@@ -3748,9 +3751,12 @@ FEEDBACK PAR SECTION :
 ${sectionFeedbackText || "Aucun feedback par section."}
 
 IMPORTANT : Génère une version améliorée en conservant la structure JSON exacte.
+- CONSERVE TOUTES les sections existantes — ne supprime JAMAIS une section, même si tu la trouves faible.
+- Conserve le même nombre de sections dans le même ordre.
 - Pour les sections avec dataTruncated:true, conserve dataPreview et dataRowCount tels quels.
-- Améliore : titres, sous-titres, interprétations, KPIs, objectifs.
-- Ne modifie PAS les données (data/dataPreview).
+- Conserve le champ "config" de chaque section tel quel (xKey, yKeys, colors, names, etc.).
+- Ne modifie PAS les données (data/dataPreview) ni le type de graphique.
+- Améliore UNIQUEMENT : title, subtitle, interpretation, insight, KPIs, objective.
 Réponds UNIQUEMENT avec le JSON valide.`;
 
     const iterateMaxTokens = aiMode === "local" ? 2000 : 4000;
@@ -3762,27 +3768,49 @@ Réponds UNIQUEMENT avec le JSON valide.`;
     const improved = { ...extracted.json, id: currentReport.id };
 
     // ── Re-inject original full data into improved sections ──
-    // The prompt only sent truncated data (3 rows preview). Restore the
-    // full data arrays from the original report so charts/tables keep all rows.
+    // Match by title (not index) because the AI may reorder sections.
+    // Restore full data + config from originals so charts keep working.
     if (improved.sections && currentReport.sections) {
+      // Build a lookup of originals by normalized title
+      const origByTitle = {};
+      for (const orig of currentReport.sections) {
+        if (orig.title) origByTitle[orig.title.trim().toLowerCase()] = orig;
+      }
+
       for (let i = 0; i < improved.sections.length; i++) {
-        const orig = currentReport.sections[i];
         const impSec = improved.sections[i];
+
+        // Match: first try by title, then fallback to same index
+        const orig = (impSec.title && origByTitle[impSec.title.trim().toLowerCase()])
+          || currentReport.sections[i]
+          || null;
         if (!orig) continue;
-        // Restore full data from original if AI returned truncated preview
+
+        // Restore full data from original (prompt only sent 3-row preview)
         if (orig.data && Array.isArray(orig.data)) {
           impSec.data = orig.data;
         }
+
         // Clean up prompt-only fields the AI might have echoed back
         delete impSec.dataPreview;
         delete impSec.dataRowCount;
         delete impSec.dataTruncated;
-        // Restore chart config keys the AI might have dropped
+
+        // Restore chart config — the critical piece for chart rendering
+        if (orig.config && !impSec.config) {
+          impSec.config = orig.config;
+        }
+        // Restore section-level keys (legacy format) as fallback
         if (orig.xKey && !impSec.xKey) impSec.xKey = orig.xKey;
         if (orig.yKeys && !impSec.yKeys) impSec.yKeys = orig.yKeys;
         if (orig.nameKey && !impSec.nameKey) impSec.nameKey = orig.nameKey;
         if (orig.valueKey && !impSec.valueKey) impSec.valueKey = orig.valueKey;
         if (orig.columns && !impSec.columns) impSec.columns = orig.columns;
+
+        // Preserve data_sets for pie_multi charts
+        if (orig.data_sets && !impSec.data_sets) {
+          impSec.data_sets = orig.data_sets;
+        }
       }
     }
 
