@@ -3751,12 +3751,11 @@ FEEDBACK PAR SECTION :
 ${sectionFeedbackText || "Aucun feedback par section."}
 
 IMPORTANT : Génère une version améliorée en conservant la structure JSON exacte.
-- CONSERVE TOUTES les sections existantes — ne supprime JAMAIS une section, même si tu la trouves faible.
-- Conserve le même nombre de sections dans le même ordre.
 - Pour les sections avec dataTruncated:true, conserve dataPreview et dataRowCount tels quels.
-- Conserve le champ "config" de chaque section tel quel (xKey, yKeys, colors, names, etc.).
-- Ne modifie PAS les données (data/dataPreview) ni le type de graphique.
-- Améliore UNIQUEMENT : title, subtitle, interpretation, insight, KPIs, objective.
+- Ne modifie PAS les données (data/dataPreview).
+- Conserve le champ "config" de chaque section sauf si tu changes le type de graphique.
+- Améliore : title, subtitle, interpretation, insight, KPIs, objective, type, config.
+- Tu peux réordonner ou supprimer des sections si c'est pertinent.
 Réponds UNIQUEMENT avec le JSON valide.`;
 
     const iterateMaxTokens = aiMode === "local" ? 2000 : 4000;
@@ -3814,13 +3813,26 @@ Réponds UNIQUEMENT avec le JSON valide.`;
       }
     }
 
-    // ── Post-processing: cap table rows at 15 ──
+    // ── Post-processing ──
     if (improved.sections) {
+      // Cap table rows at 15
       for (const section of improved.sections) {
         if (section.type === "table" && Array.isArray(section.data) && section.data.length > 15) {
           section.data = section.data.slice(0, 15);
         }
       }
+
+      // Drop sections that ended up with no renderable content
+      // (chart/table with no data after re-injection = empty visual)
+      improved.sections = improved.sections.filter(s => {
+        if (s.type === "text") return true;  // text sections are always valid
+        if (s.type === "pie_multi") return !!(s.data_sets?.length && s.data_sets.some(ds => ds.data?.length > 0));
+        if (!Array.isArray(s.data) || s.data.length === 0) {
+          console.warn(`[iterate] Dropping section "${s.title}" — no data after re-injection`);
+          return false;
+        }
+        return true;
+      });
     }
 
     // Enrich sections with data source metadata
