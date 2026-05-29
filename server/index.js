@@ -4242,6 +4242,30 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
       return { pivoted, seriesNames, colors: seriesNames.map((_, i) => COLORS[i % COLORS.length]) };
     };
 
+    // ── Helper: when keys don't match data, infer valid xKey/yKeys from columns ──
+    // (first string column = xKey, numeric columns = yKeys). Guarantees a renderable chart.
+    const fixKeysFromData = (sec, data) => {
+      if (!Array.isArray(data) || data.length === 0) return;
+      const sample = data[0];
+      const skip = new Set(["_count", "data_sources"]);
+      const strKeys = Object.keys(sample).filter(k => !skip.has(k) && typeof sample[k] === "string");
+      const numKeys = Object.keys(sample).filter(k => !skip.has(k) && typeof sample[k] === "number");
+      if (numKeys.length === 0) return;
+      const xKey = strKeys[0] || numKeys[0];
+      const yKeys = numKeys.filter(k => k !== xKey);
+      if (yKeys.length === 0) return;
+      if (!sec.config) sec.config = {};
+      sec.config.xKey = xKey;
+      sec.config.yKeys = yKeys;
+      sec.xKey = xKey;
+      sec.yKeys = yKeys;
+      const COLORS = ["#C8FF3C", "#4A90B8", "#C45A32", "#D4A03A", "#3A8A4A", "#8B7EC8"];
+      if (!sec.config.colors || sec.config.colors.length !== yKeys.length) {
+        sec.config.colors = yKeys.map((_, i) => COLORS[i % COLORS.length]);
+      }
+      console.log(`[improve-section] Inferred keys from data: xKey="${xKey}", yKeys=${JSON.stringify(yKeys)}`);
+    };
+
     // ── Route 1: Re-compute from modified spec ──
     if (improvedSection._recompute && improvedSection._recompute.table) {
       try {
@@ -4296,12 +4320,15 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
       if (section.data && Array.isArray(section.data)) improvedSection.data = section.data;
       if (section.data_sets) improvedSection.data_sets = section.data_sets;
 
-      // Validate AI-provided keys against actual data columns
+      // Validate AI-provided keys against actual data columns.
+      // The LLM may place keys at the top level OR inside config — check both.
       const actualCols = section.data?.length > 0 ? new Set(Object.keys(section.data[0])) : null;
       if (actualCols) {
-        const xKeyMismatch = improvedSection.xKey && !actualCols.has(improvedSection.xKey);
-        const yKeysMismatch = improvedSection.yKeys?.length > 0 &&
-          improvedSection.yKeys.some(k => !actualCols.has(k));
+        const effXKey = improvedSection.config?.xKey || improvedSection.xKey;
+        const effYKeys = improvedSection.config?.yKeys || improvedSection.yKeys || [];
+        const xKeyMismatch = effXKey && !actualCols.has(effXKey);
+        const yKeysMismatch = effYKeys.length > 0 &&
+          effYKeys.some(k => !actualCols.has(k));
 
         // ── Auto-pivot: if LLM changed keys to non-existent columns, try pivot ──
         if ((xKeyMismatch || yKeysMismatch) && section.data.length >= 2 && section.data.length <= 30) {
@@ -4342,18 +4369,11 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
               improvedSection.config.colors = pivotResult.colors;
               console.log(`[improve-section] Auto-pivoted on "${pivotCol}": ${section.data.length} rows → ${pivotResult.pivoted.length} rows × ${pivotResult.seriesNames.length} series`);
             } else {
-              // Auto-pivot failed, fall back to original keys
-              if (xKeyMismatch) improvedSection.xKey = section.xKey;
-              if (yKeysMismatch && section.yKeys?.length) improvedSection.yKeys = section.yKeys;
+              fixKeysFromData(improvedSection, section.data);
             }
           } else {
-            // Not pivot-eligible, fall back to original keys
-            if (xKeyMismatch) improvedSection.xKey = section.xKey;
-            if (yKeysMismatch && section.yKeys?.length) {
-              if (!improvedSection.config) improvedSection.config = {};
-              if (!improvedSection.config.names) improvedSection.config.names = improvedSection.yKeys;
-              improvedSection.yKeys = section.yKeys;
-            }
+            // Not pivot-eligible — infer valid keys from actual data columns
+            fixKeysFromData(improvedSection, section.data);
           }
         }
       }
@@ -4362,8 +4382,11 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
     // Preserve spec for future re-computation
     if (section._spec && !improvedSection._spec) improvedSection._spec = section._spec;
 
-    if (section.xKey && !improvedSection.xKey) improvedSection.xKey = section.xKey;
-    if (section.yKeys && !improvedSection.yKeys) improvedSection.yKeys = section.yKeys;
+    // Only restore old top-level keys if they still match the current data columns,
+    // so we never re-introduce stale keys that RenderSection prioritizes over config.
+    const finalCols = improvedSection.data?.length > 0 ? new Set(Object.keys(improvedSection.data[0])) : null;
+    if (section.xKey && !improvedSection.xKey && (!finalCols || finalCols.has(section.xKey))) improvedSection.xKey = section.xKey;
+    if (section.yKeys && !improvedSection.yKeys && (!finalCols || section.yKeys.every(k => finalCols.has(k)))) improvedSection.yKeys = section.yKeys;
     if (section.nameKey && !improvedSection.nameKey) improvedSection.nameKey = section.nameKey;
     if (section.valueKey && !improvedSection.valueKey) improvedSection.valueKey = section.valueKey;
     if (section.columns && !improvedSection.columns) improvedSection.columns = section.columns;
