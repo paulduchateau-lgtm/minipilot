@@ -32,13 +32,17 @@ function WorkspaceContent() {
   const [showLeaveWarning, setShowLeaveWarning] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
 
-  // Dynamic browser tab title based on workspace product type
+  // Dynamic browser tab title: Pilot — Workspace — Report title (when viewing)
   useEffect(() => {
     if (workspace) {
       const label = getProductName(workspace);
-      document.title = `${label} — ${workspace.name}`;
+      if (viewingReport?.title) {
+        document.title = `${label} — ${workspace.name} — ${viewingReport.title}`;
+      } else {
+        document.title = `${label} — ${workspace.name}`;
+      }
     }
-  }, [workspace]);
+  }, [workspace, viewingReport]);
 
   useEffect(() => {
     checkOnboarding();
