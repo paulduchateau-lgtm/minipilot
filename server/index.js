@@ -2666,6 +2666,73 @@ app.post("/api/w/:slug/transform", async (req, res) => {
         const keyMap = {};
         for (const k of originalKeys) keyMap[k] = normalizeColumnName(k);
 
+        // ── Smart __EMPTY column renaming ──────────────────────────
+        // Financial Excel sheets often have multi-row headers: XLSX takes
+        // row 0 as headers, but the real column names (e.g. month names)
+        // may be a few rows down. Scan the first 10 rows for a "hidden
+        // header row" that provides text labels for __EMPTY columns.
+        const emptyKeys = originalKeys.filter(k => k.startsWith("__EMPTY"));
+        if (emptyKeys.length >= 5) {
+          // Find the best "hidden header row": prefer rows with many SHORT
+          // text labels (month names avg ~6 chars) over rows with fewer but
+          // longer descriptive text. Score = textCount / avgLength penalizes
+          // verbose rows that are data, not headers.
+          let bestRow = -1;
+          let bestScore = 0;
+          let bestCount = 0;
+          for (let ri = 0; ri < Math.min(10, nonEmptyRows.length); ri++) {
+            const row = nonEmptyRows[ri];
+            let textCount = 0;
+            let totalLen = 0;
+            for (const ek of emptyKeys) {
+              const v = row[ek];
+              if (typeof v === "string" && v.trim().length > 0 && v.trim().length < 50) {
+                textCount++;
+                totalLen += v.trim().length;
+              }
+            }
+            if (textCount >= 5) {
+              const avgLen = totalLen / textCount;
+              const score = textCount / Math.max(avgLen, 1);
+              if (score > bestScore) { bestScore = score; bestRow = ri; bestCount = textCount; }
+            }
+          }
+          if (bestRow >= 0 && bestCount >= 5) {
+            const headerRow = nonEmptyRows[bestRow];
+            const usedNames = new Set(Object.values(keyMap));
+            for (const ek of emptyKeys) {
+              const label = headerRow[ek];
+              if (typeof label === "string" && label.trim().length > 0 && label.trim().length < 50) {
+                let norm = normalizeColumnName(label.trim());
+                // Deduplicate: append _2, _3 etc. if name already taken
+                if (usedNames.has(norm)) {
+                  let suffix = 2;
+                  while (usedNames.has(`${norm}_${suffix}`)) suffix++;
+                  norm = `${norm}_${suffix}`;
+                }
+                keyMap[ek] = norm;
+                usedNames.add(norm);
+              }
+            }
+            // Also rename any named columns that have a better label in this header row
+            // (e.g. "S1 26" might have "Janvier" as its real month name)
+            for (const k of originalKeys) {
+              if (k.startsWith("__EMPTY")) continue;
+              const label = headerRow[k];
+              if (typeof label === "string" && label.trim().length > 0 && label.trim().length < 50) {
+                const norm = normalizeColumnName(label.trim());
+                if (!usedNames.has(norm)) {
+                  keyMap[k] = norm;
+                  usedNames.add(norm);
+                }
+              }
+            }
+            // Remove the header row from data — it's metadata, not data
+            nonEmptyRows.splice(bestRow, 1);
+            console.log(`[Transform] Renamed ${bestCount} __EMPTY columns using header row ${bestRow} in "${sheetName}"`);
+          }
+        }
+
         const displayName = sheetName || path.basename(file.name, path.extname(file.name));
         allSheetMeta.push({
           name: displayName,
