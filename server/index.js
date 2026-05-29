@@ -4221,9 +4221,11 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
     // ── Helper: execute pivot on data ──
     // Transposes a table: numeric columns become X-axis rows, pivotCol values become series.
     const executePivot = (data, pivotCol, newXKey) => {
-      const skipCols = new Set([pivotCol, "_count", "data_sources"]);
-      // Only numeric columns become value rows (skip stray string columns)
-      const valueCols = Object.keys(data[0]).filter(k =>
+      const skipCols = new Set([pivotCol, "_count", "data_sources", "_ts"]);
+      // Only numeric columns become value rows (skip stray string columns).
+      // Enumerate keys across ALL rows and require a number in some row.
+      const allKeys = [...new Set(data.flatMap(r => Object.keys(r)))];
+      const valueCols = allKeys.filter(k =>
         !skipCols.has(k) && data.some(r => typeof r[k] === "number")
       );
       const seriesNames = [...new Set(data.map(r => r[pivotCol]).filter(Boolean))].map(String);
@@ -4234,7 +4236,11 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
         const row = { [newXKey]: label };
         for (const srcRow of data) {
           const series = srcRow[pivotCol];
-          if (series != null) row[String(series)] = srcRow[col];
+          if (series == null) continue;
+          const v = srcRow[col];
+          // Coerce numeric strings, drop empty/non-numeric so the line just gaps
+          if (typeof v === "number") row[String(series)] = v;
+          else if (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v))) row[String(series)] = Number(v);
         }
         return row;
       });
@@ -4242,14 +4248,31 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
       return { pivoted, seriesNames, colors: seriesNames.map((_, i) => COLORS[i % COLORS.length]) };
     };
 
+    // ── Helper: classify columns across ALL rows (not just the first) ──
+    // A column may have empty/missing values in some rows (e.g. a scenario with
+    // no data), so basing type detection on row[0] alone is unreliable.
+    const classifyColumns = (data) => {
+      const skip = new Set(["_count", "data_sources", "_ts"]);
+      const allKeys = [...new Set(data.flatMap(r => Object.keys(r)))].filter(k => !skip.has(k));
+      const numKeys = [], strKeys = [];
+      for (const k of allKeys) {
+        let hasNum = false, hasNonEmptyStr = false;
+        for (const r of data) {
+          const v = r[k];
+          if (typeof v === "number") hasNum = true;
+          else if (typeof v === "string" && v.trim() !== "") hasNonEmptyStr = true;
+        }
+        if (hasNum && !hasNonEmptyStr) numKeys.push(k);
+        else if (hasNonEmptyStr) strKeys.push(k); // text (or mixed) → categorical
+      }
+      return { numKeys, strKeys };
+    };
+
     // ── Helper: when keys don't match data, infer valid xKey/yKeys from columns ──
     // (first string column = xKey, numeric columns = yKeys). Guarantees a renderable chart.
     const fixKeysFromData = (sec, data) => {
       if (!Array.isArray(data) || data.length === 0) return;
-      const sample = data[0];
-      const skip = new Set(["_count", "data_sources"]);
-      const strKeys = Object.keys(sample).filter(k => !skip.has(k) && typeof sample[k] === "string");
-      const numKeys = Object.keys(sample).filter(k => !skip.has(k) && typeof sample[k] === "number");
+      const { numKeys, strKeys } = classifyColumns(data);
       if (numKeys.length === 0) return;
       const xKey = strKeys[0] || numKeys[0];
       const yKeys = numKeys.filter(k => k !== xKey);
@@ -4303,8 +4326,10 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
         improvedSection.config.yKeys = pivotResult.seriesNames;
         improvedSection.xKey = newXKey;
         improvedSection.yKeys = pivotResult.seriesNames;
-        if (!improvedSection.config.names) improvedSection.config.names = pivotResult.seriesNames;
-        if (!improvedSection.config.colors) improvedSection.config.colors = pivotResult.colors;
+        // Always derive names from the pivot order — the LLM cannot know the
+        // series order, so reusing its names would mislabel/miscolor the lines.
+        improvedSection.config.names = pivotResult.seriesNames;
+        improvedSection.config.colors = pivotResult.colors;
         console.log(`[improve-section] Pivoted: ${section.data.length} rows → ${pivotResult.pivoted.length} rows × ${pivotResult.seriesNames.length} series`);
       } else {
         if (section.data && Array.isArray(section.data)) improvedSection.data = section.data;
@@ -4322,7 +4347,10 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
 
       // Validate AI-provided keys against actual data columns.
       // The LLM may place keys at the top level OR inside config — check both.
-      const actualCols = section.data?.length > 0 ? new Set(Object.keys(section.data[0])) : null;
+      // Union keys across all rows (a column may be absent/empty in row[0]).
+      const actualCols = section.data?.length > 0
+        ? new Set(section.data.flatMap(r => Object.keys(r)))
+        : null;
       if (actualCols) {
         const effXKey = improvedSection.config?.xKey || improvedSection.xKey;
         const effYKeys = improvedSection.config?.yKeys || improvedSection.yKeys || [];
@@ -4332,13 +4360,12 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
 
         // ── Auto-pivot: if LLM changed keys to non-existent columns, try pivot ──
         if ((xKeyMismatch || yKeysMismatch) && section.data.length >= 2 && section.data.length <= 30) {
-          const sample = section.data[0];
-          const cols = Object.keys(sample);
-          const numericCols = cols.filter(k => k !== "_count" && k !== "data_sources" && typeof sample[k] === "number");
-          // Candidate pivot columns: string columns with 2-12 distinct values (suitable as series)
-          const strCols = cols.filter(k => {
-            if (typeof sample[k] !== "string") return false;
-            const distinct = new Set(section.data.map(r => r[k]).filter(v => v != null));
+          // Classify across ALL rows — row[0] may hold empty strings for a
+          // scenario with no data, which would hide the numeric period columns.
+          const { numKeys: numericCols, strKeys: allStrCols } = classifyColumns(section.data);
+          // Candidate pivot columns: categorical columns with 2-12 distinct values
+          const strCols = allStrCols.filter(k => {
+            const distinct = new Set(section.data.map(r => r[k]).filter(v => v != null && v !== ""));
             return distinct.size >= 2 && distinct.size <= 12;
           });
           // Pivot is viable with >= 2 numeric columns (periods) + a categorical column (series)
@@ -4362,10 +4389,9 @@ Réponds UNIQUEMENT avec le JSON valide de la section.`;
               improvedSection.config.yKeys = pivotResult.seriesNames;
               improvedSection.xKey = newXKey;
               improvedSection.yKeys = pivotResult.seriesNames;
-              // Map readable names to series; keep LLM names only if they match count
-              if (!improvedSection.config.names || improvedSection.config.names.length !== pivotResult.seriesNames.length) {
-                improvedSection.config.names = pivotResult.seriesNames;
-              }
+              // Always derive names/colors from the pivot order — the LLM cannot
+              // know the series order, so reusing its names would mislabel lines.
+              improvedSection.config.names = pivotResult.seriesNames;
               improvedSection.config.colors = pivotResult.colors;
               console.log(`[improve-section] Auto-pivoted on "${pivotCol}": ${section.data.length} rows → ${pivotResult.pivoted.length} rows × ${pivotResult.seriesNames.length} series`);
             } else {
